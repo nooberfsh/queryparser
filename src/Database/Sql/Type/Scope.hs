@@ -196,15 +196,7 @@ data Catalog = Catalog
     , catalogResolveCreateTableName :: forall a . OQTableName a -> CatalogObjectResolver a (RCreateTableName a)
     , catalogResolveColumnName :: forall a . [(Maybe (RTableRef a), [RColumnRef a])] -> OQColumnName a -> CatalogObjectResolver a (RColumnRef a)
     , overCatalogMap :: forall a . (CatalogMap -> (CatalogMap, a)) -> (Catalog, a)
-    , catalogMap :: !CatalogMap
     }
-
-instance Eq Catalog where
-    x == y = catalogMap x == catalogMap y
-
-instance Show Catalog where
-    show = show . catalogMap
-
 
 -- returned by methods in Catalog
 type CatalogObjectResolver a =

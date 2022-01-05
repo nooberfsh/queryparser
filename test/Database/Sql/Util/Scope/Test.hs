@@ -2738,9 +2738,9 @@ testDefaulting = test
         ]
     ]
 
-defaultTestCatalog :: Catalog
-defaultTestCatalog = makeCatalog
-    ( HMS.singleton (defaultDatabase ()) $ HMS.fromList
+defaultTestCatalogMap :: CatalogMap
+defaultTestCatalogMap = 
+    HMS.singleton (defaultDatabase ()) $ HMS.fromList
         [ ( mkNormalSchema "public" ()
           , HMS.fromList
             [ ( QTableName () None "foo"
@@ -2771,12 +2771,15 @@ defaultTestCatalog = makeCatalog
           , HMS.empty
           )
         ]
-    )
+
+defaultTestCatalog :: Catalog
+defaultTestCatalog = makeCatalog 
+    defaultTestCatalogMap
     [ mkNormalSchema "public" () ]
     ( defaultDatabase () )
 
 defaultDefaultingTestCatalog :: Catalog
-defaultDefaultingTestCatalog = makeDefaultingCatalog (catalogMap defaultTestCatalog) [mkNormalSchema "public" ()] (defaultDatabase ())
+defaultDefaultingTestCatalog = makeDefaultingCatalog defaultTestCatalogMap [mkNormalSchema "public" ()] (defaultDatabase ())
 
 pathologicalSemiJoinStructAccessorCatalog :: Catalog
 pathologicalSemiJoinStructAccessorCatalog = makeCatalog

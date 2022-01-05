@@ -56,7 +56,6 @@ library
                      , Database.Sql.Util.Json.Test
                      , Database.Sql.Util.Lineage.Table.Test
                      , Database.Sql.Util.Lineage.ColumnPlus.Test
-                     , Database.Sql.Util.Schema.Test
                      , Database.Sql.Util.Scope.Test
                      , Database.Sql.Util.Tables.Test
                      , Database.Sql.Util.Test
@@ -119,7 +118,6 @@ test-suite queryparser-test-suite
                      , Database.Sql.Util.Json.Test
                      , Database.Sql.Util.Lineage.Table.Test
                      , Database.Sql.Util.Lineage.ColumnPlus.Test
-                     , Database.Sql.Util.Schema.Test
                      , Database.Sql.Util.Scope.Test
                      , Database.Sql.Util.Tables.Test
                      , Database.Sql.Util.Test

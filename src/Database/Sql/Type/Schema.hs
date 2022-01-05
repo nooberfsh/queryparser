@@ -304,7 +304,6 @@ makeCatalog catalog path currentDb = Catalog{..}
         let (cm, extra) = f catalog
          in seq cm $ (makeCatalog cm path currentDb, extra)
 
-    catalogMap = catalog
 
 defaultSchemaMember :: SchemaMember
 defaultSchemaMember = SchemaMember{..}
@@ -627,5 +626,3 @@ makeDefaultingCatalog catalog path currentDb = Catalog{..}
     overCatalogMap f =
         let (cm, extra) = f catalog
          in seq cm $ (makeDefaultingCatalog cm path currentDb, extra)
-
-    catalogMap = catalog
