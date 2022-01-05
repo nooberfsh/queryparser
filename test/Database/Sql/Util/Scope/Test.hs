@@ -1222,23 +1222,7 @@ testResolutionOnASTs = test
         ]
 
     , "test resolution of Vertica specific queries" ~:
-        [ "ALTER TABLE foo, bar, qux RENAME TO qux, foo, bar;" ~: testVertica "ALTERTABLERENAME" defaultTestCatalog
-            ( VerticaMultipleRenameStatement
-                ( VSQL.MultipleRename 1
-                    [ AlterTableRenameTable 2
-                        ( QTableName 3 Nothing "foo" )
-                        ( QTableName 4 Nothing "qux" )
-                    , AlterTableRenameTable 5
-                        ( QTableName 6 Nothing "bar" )
-                        ( QTableName 7 Nothing "foo" )
-                    , AlterTableRenameTable 8
-                        ( QTableName 9 Nothing "qux" )
-                        ( QTableName 10 Nothing "bar" )
-                    ]
-                )
-            )
-
-        , "CREATE PROJECTION foo_projection AS SELECT * FROM foo SEGMENTED BY HASH(a) ALL NODES KSAFE;" ~: testVertica "CREATEPROJECTION" defaultTestCatalog
+        [ "CREATE PROJECTION foo_projection AS SELECT * FROM foo SEGMENTED BY HASH(a) ALL NODES KSAFE;" ~: testVertica "CREATEPROJECTION" defaultTestCatalog
             ( VerticaCreateProjectionStatement
                 ( VSQL.CreateProjection
                     { createProjectionInfo = 1
@@ -2436,23 +2420,7 @@ testDefaulting = test
         ]
 
     , "test resolution of Vertica specific queries" ~:
-        [ "ALTER TABLE foo, bar, qux RENAME TO qux, foo, bar;" ~: testVertica "DEFAULTMISSINGALTERTABLERENAME" defaultDefaultingTestCatalog
-            ( VerticaMultipleRenameStatement
-                ( VSQL.MultipleRename 1
-                    [ AlterTableRenameTable 2
-                        ( QTableName 3 Nothing "foo" )
-                        ( QTableName 4 Nothing "qux" )
-                    , AlterTableRenameTable 5
-                        ( QTableName 6 Nothing "bar" )
-                        ( QTableName 7 Nothing "foo" )
-                    , AlterTableRenameTable 8
-                        ( QTableName 9 Nothing "qux" )
-                        ( QTableName 10 Nothing "bar" )
-                    ]
-                )
-            )
-
-        , "CREATE PROJECTION foo_projection AS SELECT * FROM foo SEGMENTED BY HASH(a) ALL NODES KSAFE;" ~: testVertica "DEFAULTCREATEPROJECTION" defaultDefaultingTestCatalog
+        [ "CREATE PROJECTION foo_projection AS SELECT * FROM foo SEGMENTED BY HASH(a) ALL NODES KSAFE;" ~: testVertica "DEFAULTCREATEPROJECTION" defaultDefaultingTestCatalog
             ( VerticaCreateProjectionStatement
                 ( VSQL.CreateProjection
                     { createProjectionInfo = 1

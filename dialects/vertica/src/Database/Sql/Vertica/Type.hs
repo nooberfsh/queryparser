@@ -495,9 +495,11 @@ resolveMultipleRename (MultipleRename info (a:as)) = do
     catalog <- asks catalog
 
 
+    -- TODO: uncomment following lines when Catalog refactor compelete
     -- here we're discarding SchemaChangeErrors - I'm not sure what's right
-    let merge cat ch = fst $ applySchemaChange ch cat
-        catalog' =  foldl' merge catalog $ getSchemaChange a'
+    --let merge cat ch = fst $ applySchemaChange ch cat
+        --catalog' =  foldl' merge catalog $ getSchemaChange a'
+    let catalog' = catalog
 
     MultipleRename info' as' <- local (\ ri -> ri { catalog = catalog' }) $ resolveMultipleRename $ MultipleRename info as
 

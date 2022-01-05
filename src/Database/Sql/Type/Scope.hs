@@ -195,7 +195,6 @@ data Catalog = Catalog
     , catalogResolveCreateSchemaName :: forall a . OQSchemaName a -> CatalogObjectResolver a (RCreateSchemaName a)
     , catalogResolveCreateTableName :: forall a . OQTableName a -> CatalogObjectResolver a (RCreateTableName a)
     , catalogResolveColumnName :: forall a . [(Maybe (RTableRef a), [RColumnRef a])] -> OQColumnName a -> CatalogObjectResolver a (RColumnRef a)
-    , overCatalogMap :: forall a . (CatalogMap -> (CatalogMap, a)) -> (Catalog, a)
     }
 
 -- returned by methods in Catalog

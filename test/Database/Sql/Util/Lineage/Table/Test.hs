@@ -170,25 +170,6 @@ testTableLineage = test
         , testVertica "ALTER PROJECTION foo RENAME TO bar;" defaultTestCatalog (@=? M.empty)
 
         , testAll "GRANT SELECT ON foo TO bar;" defaultTestCatalog (@=? M.empty)
-        , testVertica "ALTER TABLE foo, foo1, bar RENAME TO foo1, foo2, baz;" defaultTestCatalog
-            (@=? M.fromList
-                [ ( FullyQualifiedTableName "default_db" "public" "bar"
-                  , S.empty
-                  )
-                , ( FullyQualifiedTableName "default_db" "public" "baz"
-                  , S.singleton $ FullyQualifiedTableName "default_db" "public" "bar"
-                  )
-                , ( FullyQualifiedTableName "default_db" "public" "foo"
-                  , S.empty
-                  )
-                , ( FullyQualifiedTableName "default_db" "public" "foo1"
-                  , S.empty
-                  )
-                , ( FullyQualifiedTableName "default_db" "public" "foo2"
-                  , S.singleton $ FullyQualifiedTableName "default_db" "public" "foo"
-                  )
-                ]
-            )
         , testHive "INSERT OVERWRITE TABLE foo SELECT * FROM bar;" defaultTestCatalog
           (@=? M.fromList
                 [ ( FullyQualifiedTableName "default_db" "public" "foo"
