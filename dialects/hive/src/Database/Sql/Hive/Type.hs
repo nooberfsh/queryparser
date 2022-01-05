@@ -349,8 +349,10 @@ resolveAlterPartitionSetLocation AlterPartitionSetLocation{..} = do
 
 instance HasSchemaChange (HiveStatement ResolvedNames a) where
     getSchemaChange (HiveStandardSqlStatement stmt) = getSchemaChange stmt
-    getSchemaChange (HiveUseStmt (UseDefault _)) = [UsePath [QSchemaName () None "default" NormalSchema]]
-    getSchemaChange (HiveUseStmt (UseDatabase schema)) = [UsePath [void schema]]
+    -- TODO: uncomment following 2 lines when Catalog refactoring completed
+    --getSchemaChange (HiveUseStmt (UseDefault _)) = [UsePath [QSchemaName () None "default" NormalSchema]]
+    --getSchemaChange (HiveUseStmt (UseDatabase schema)) = [UsePath [void schema]]
+    getSchemaChange (HiveUseStmt _) = []
     getSchemaChange (HiveAnalyzeStmt _) = []
     getSchemaChange (HiveInsertDirectoryStmt _) = []
     getSchemaChange (HiveTruncatePartitionStmt _) = []

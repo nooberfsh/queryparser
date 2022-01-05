@@ -50,7 +50,6 @@ data SchemaChange
     | CreateSchema (FQSchemaName ()) SchemaMap
     | DropSchema (FQSchemaName ())
     | CreateDatabase (DatabaseName ()) DatabaseMap
-    | UsePath [UQSchemaName ()]
 
 
 data SchemaChangeError
@@ -225,8 +224,6 @@ applySchemaChange (CreateDatabase db database) Catalog{..} = overCatalogMap $ \ 
     ( HMS.insert (void db) database catalog
     , [DatabaseCollision $ void db]
     )
-
-applySchemaChange (UsePath path) Catalog{..} = (catalogWithPath path, [])
 
 
 class HasSchemaChange q where
