@@ -197,7 +197,6 @@ data Catalog = Catalog
     , catalogResolveColumnName :: forall a . [(Maybe (RTableRef a), [RColumnRef a])] -> OQColumnName a -> CatalogObjectResolver a (RColumnRef a)
     , overCatalogMap :: forall a . (CatalogMap -> (CatalogMap, a)) -> (Catalog, a)
     , catalogMap :: !CatalogMap
-    , catalogWithDatabase :: CurrentDatabase -> Catalog
     }
 
 instance Eq Catalog where

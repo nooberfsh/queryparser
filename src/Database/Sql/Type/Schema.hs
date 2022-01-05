@@ -306,8 +306,6 @@ makeCatalog catalog path currentDb = Catalog{..}
 
     catalogMap = catalog
 
-    catalogWithDatabase = makeCatalog catalog path
-
 defaultSchemaMember :: SchemaMember
 defaultSchemaMember = SchemaMember{..}
   where
@@ -631,5 +629,3 @@ makeDefaultingCatalog catalog path currentDb = Catalog{..}
          in seq cm $ (makeDefaultingCatalog cm path currentDb, extra)
 
     catalogMap = catalog
-
-    catalogWithDatabase = makeDefaultingCatalog catalog path
