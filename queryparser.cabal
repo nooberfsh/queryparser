@@ -86,11 +86,21 @@ library
                      , Data.Hashable
 
   default-extensions:  OverloadedStrings
-                     , LambdaCase
                      , RecordWildCards
                      , TupleSections
                      , ConstraintKinds
                      , FlexibleInstances
+                     -- extensions for polysemy
+                     , DataKinds 
+                     , FlexibleContexts 
+                     , GADTs
+                     , LambdaCase
+                     , PolyKinds
+                     , RankNTypes
+                     , ScopedTypeVariables
+                     , TypeApplications
+                     , TypeOperators
+                     , TypeFamilies
 
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.9 && <5
@@ -107,15 +117,21 @@ library
                      , hashable
                      , QuickCheck
                      , fixed-list
+                     , polysemy
+                     , polysemy-plugin
 
   -- Directories containing source files.
   hs-source-dirs:      src, compat
 
 
   ghc-options:         -Wall -Wno-redundant-constraints
+                       -O2 -flate-specialise -fspecialise-aggressively
+                       -fplugin=Polysemy.Plugin
 
   if flag(development)
     ghc-options:       -Werror
+                       -O2 -flate-specialise -fspecialise-aggressively
+                       -fplugin=Polysemy.Plugin
 
   -- Base language which the package is written in.
   default-language:    Haskell2010

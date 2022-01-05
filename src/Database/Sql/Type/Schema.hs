@@ -21,6 +21,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# Language NoMonoLocalBinds #-}
 
 module Database.Sql.Type.Schema where
 
