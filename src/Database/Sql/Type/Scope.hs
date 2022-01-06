@@ -167,7 +167,7 @@ instance Resolution ResolvedNames where
 type ResolverEff a = 
     [ PS.State Integer -- column alias generation (counts down from -1, unlike parse phase)
     , PR.Reader (ResolverInfo a)
-    , Catalog
+    , Catalog a
     -- CatalogEff
     , PE.Error (ResolutionError a)
     , PW.Writer [Either (ResolutionError a) (ResolutionSuccess a)]
@@ -191,16 +191,16 @@ type Path = [UQSchemaName ()]
 type CurrentDatabase = DatabaseName ()
 
 
-data Catalog m a where
-    CatalogResolveSchemaName :: OQSchemaName a -> Catalog m (FQSchemaName a)
-    CatalogResolveTableName :: OQTableName a -> Catalog m (RTableName a)
-    CatalogHasDatabase :: DatabaseName () -> Catalog m Existence
-    CatalogHasSchema :: UQSchemaName () -> Catalog m Existence
-    CatalogHasTable :: UQTableName () -> Catalog m Existence  -- | nb DoesNotExist does not imply that we can't resolve to this name (defaulting)
-    CatalogResolveTableRef :: [(TableAlias a, [RColumnRef a])] -> OQTableName a -> Catalog m (WithColumns RTableRef a)
-    CatalogResolveCreateSchemaName :: OQSchemaName a -> Catalog m (RCreateSchemaName a)
-    CatalogResolveCreateTableName :: OQTableName a -> Catalog m (RCreateTableName a)
-    CatalogResolveColumnName :: [(Maybe (RTableRef a), [RColumnRef a])] -> OQColumnName a -> Catalog m (RColumnRef a)
+data Catalog i m a where
+    CatalogResolveSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
+    CatalogResolveTableName :: OQTableName i -> Catalog i m (RTableName i)
+    CatalogHasDatabase :: DatabaseName () -> Catalog i m Existence
+    CatalogHasSchema :: UQSchemaName () -> Catalog i m Existence
+    CatalogHasTable :: UQTableName () -> Catalog i m Existence  -- | nb DoesNotExist does not imply that we can't resolve to this name (defaulting)
+    CatalogResolveTableRef :: [(TableAlias i, [RColumnRef i])] -> OQTableName i -> Catalog i m (WithColumns RTableRef i)
+    CatalogResolveCreateSchemaName :: OQSchemaName i -> Catalog i m (RCreateSchemaName i)
+    CatalogResolveCreateTableName :: OQTableName i -> Catalog i m (RCreateTableName i)
+    CatalogResolveColumnName :: [(Maybe (RTableRef i), [RColumnRef i])] -> OQColumnName i -> Catalog i m (RColumnRef i)
 
 type CatalogEff a = 
     [ PE.Error (ResolutionError a) -- error
