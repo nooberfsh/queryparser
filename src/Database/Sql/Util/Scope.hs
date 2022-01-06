@@ -63,8 +63,8 @@ import Polysemy.Reader
 import Polysemy.Writer
 import Polysemy.Error
 
-makeResolverInfo :: Dialect d => Proxy d -> Catalog -> ResolverInfo a
-makeResolverInfo dialect catalog = ResolverInfo
+makeResolverInfo :: Dialect d => Proxy d -> ResolverInfo a
+makeResolverInfo dialect = ResolverInfo
     { bindings = emptyBindings
     , onCTECollision =
         if shouldCTEsShadowTables dialect
@@ -73,31 +73,33 @@ makeResolverInfo dialect catalog = ResolverInfo
     , lambdaScope = []
     , selectScope = getSelectScope dialect
     , lcolumnsAreVisibleInLateralViews = areLcolumnsVisibleInLateralViews dialect
-    , ..
     }
 
-makeColumnAlias :: a -> Text -> Resolver ColumnAlias a
+makeColumnAlias 
+    :: (Members (ResolverEff a) r)
+    => a -> Text -> Sem r (ColumnAlias a)
 makeColumnAlias r alias = ColumnAlias r alias . ColumnAliasId <$> getNextCounter
   where
     getNextCounter = modify (subtract 1) >> get
 
-runResolverWarn :: Dialect d => Resolver r a -> Proxy d -> Catalog -> (Either (ResolutionError a) (r a), [Either (ResolutionError a) (ResolutionSuccess a)])
-runResolverWarn resolver dialect catalog = runWriter $ runExceptT $ runReaderT (evalStateT resolver 0) $ makeResolverInfo dialect catalog
+-- TODOX: fix these
+-- runResolverWarn :: Dialect d => Resolver r a -> Proxy d -> Catalog -> (Either (ResolutionError a) (r a), [Either (ResolutionError a) (ResolutionSuccess a)])
+-- runResolverWarn resolver dialect catalog = runWriter $ runExceptT $ runReaderT (evalStateT resolver 0) $ makeResolverInfo dialect catalog
 
 
-runResolverWError :: Dialect d => Resolver r a -> Proxy d -> Catalog -> Either [ResolutionError a] ((r a), [ResolutionSuccess a])
-runResolverWError resolver dialect catalog =
-    let (result, warningsSuccesses) = runResolverWarn resolver dialect catalog
-        warnings = lefts warningsSuccesses
-        successes = rights warningsSuccesses
-     in case (result, warnings) of
-            (Right x, []) -> Right (x, successes)
-            (Right _, ws) -> Left ws
-            (Left e, ws) -> Left (e:ws)
+-- runResolverWError :: Dialect d => Resolver r a -> Proxy d -> Catalog -> Either [ResolutionError a] ((r a), [ResolutionSuccess a])
+-- runResolverWError resolver dialect catalog =
+--    let (result, warningsSuccesses) = runResolverWarn resolver dialect catalog
+--        warnings = lefts warningsSuccesses
+--        successes = rights warningsSuccesses
+--     in case (result, warnings) of
+--            (Right x, []) -> Right (x, successes)
+--            (Right _, ws) -> Left ws
+--            (Left e, ws) -> Left (e:ws)
 
 
-runResolverNoWarn :: Dialect d => Resolver r a -> Proxy d -> Catalog -> Either (ResolutionError a) (r a)
-runResolverNoWarn resolver dialect catalog = fst $ runResolverWarn resolver dialect catalog
+-- runResolverNoWarn :: Dialect d => Resolver r a -> Proxy d -> Catalog -> Either (ResolutionError a) (r a)
+-- runResolverNoWarn resolver dialect catalog = fst $ runResolverWarn resolver dialect catalog
 
 
 resolveStatement 
@@ -160,7 +162,6 @@ resolveQueryWithColumns (QueryIntersect info Unused lhs rhs) = do
 resolveQueryWithColumns (QueryWith info [] query) = overWithColumns (QueryWith info []) <$> resolveQueryWithColumns query
 resolveQueryWithColumns (QueryWith info (cte:ctes) query) = do
     cte' <- resolveCTE cte
-    Catalog{..} <- asks catalog
 
     let TableAlias _ alias _ = cteAlias cte'
 
@@ -698,14 +699,12 @@ resolveTableName
     :: (Members (ResolverEff a) r)
     => OQTableName a -> Sem r (RTableName a)
 resolveTableName table = do
-    Catalog{..} <- asks catalog
     lift $ lift $ catalogResolveTableName table
 
 resolveCreateTableName 
     :: (Members (ResolverEff a) r)
     => CreateTableName RawNames a -> Maybe a -> Sem r (CreateTableName ResolvedNames a)
 resolveCreateTableName tableName ifNotExists = do
-    Catalog{..} <- asks catalog
     tableName'@(RCreateTableName fqtn existence) <- lift $ lift $ catalogResolveCreateTableName tableName
 
     when ((existence, void ifNotExists) == (Exists, Nothing)) $ tell [ Left $ UnexpectedTable fqtn ]
@@ -728,7 +727,6 @@ resolveCreateSchemaName
     :: (Members (ResolverEff a) r)
     => CreateSchemaName RawNames a -> Maybe a -> Sem r (CreateSchemaName ResolvedNames a)
 resolveCreateSchemaName schemaName ifNotExists = do
-    Catalog{..} <- asks catalog
     schemaName'@(RCreateSchemaName fqsn existence) <- lift $ lift $ catalogResolveCreateSchemaName schemaName
     when ((existence, void ifNotExists) == (Exists, Nothing)) $ tell [ Left $ UnexpectedSchema fqsn ]
     pure schemaName'
@@ -737,7 +735,6 @@ resolveSchemaName
     :: (Members (ResolverEff a) r)
     => SchemaName RawNames a -> Sem r (SchemaName ResolvedNames a)
 resolveSchemaName schemaName = do
-    Catalog{..} <- asks catalog
     lift $ lift $ catalogResolveSchemaName schemaName
 
 
@@ -745,14 +742,14 @@ resolveTableRef
     :: (Members (ResolverEff a) r)
     => OQTableName a -> Sem r (WithColumns RTableRef a)
 resolveTableRef tableName = do
-    ResolverInfo{catalog = Catalog{..}, bindings = Bindings{..}} <- ask
+    ResolverInfo{bindings = Bindings{..}} <- ask
     lift $ lift $ catalogResolveTableRef boundCTEs tableName
 
 resolveColumnName 
     :: (Members (ResolverEff a) r)
     => OQColumnName a -> Sem r (RColumnRef a)
 resolveColumnName columnName = do
-    (Catalog{..}, Bindings{..}) <- asks (catalog &&& bindings)
+    Bindings{..} <- asks bindings
     lift $ lift $ catalogResolveColumnName boundColumns columnName
 
 resolveLambdaParamOrColumnName 
@@ -865,7 +862,9 @@ resolveTablish (TablishLateralView info LateralView{..} lhs) = do
 
             alias = makeColumnAlias r
 
-            prependAlias :: Text -> Int -> Resolver ColumnAlias a
+            prependAlias 
+                :: (Members (ResolverEff a) r)
+                => Text -> Int -> Sem r (ColumnAlias a)
             prependAlias prefix int = alias $ prefix `TL.append` (TL.pack $ show int)
 
             name = TL.toLower rawName
