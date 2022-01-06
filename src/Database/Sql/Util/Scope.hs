@@ -24,8 +24,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Database.Sql.Util.Scope
-    ( runResolverWarn, runResolverWError, runResolverNoWarn
-    , WithColumns (..)
+    ( WithColumns (..)
     , queryColumnNames, tablishColumnNames
     , resolveStatement, resolveQuery, resolveQueryWithColumns, resolveSelectAndOrders, resolveCTE, resolveInsert
     , resolveInsertValues, resolveDefaultExpr, resolveDelete, resolveTruncate
@@ -165,8 +164,9 @@ resolveQueryWithColumns (QueryWith info (cte:ctes) query) = do
 
     let TableAlias _ alias _ = cteAlias cte'
 
-    updateBindings <- fmap ($ local (mapBindings $ bindCTE cte')) $
-        case catalogHasTable $ QTableName () None alias of
+    updateBindings <- fmap ($ local (mapBindings $ bindCTE cte')) $ do
+        exists <- catalogHasTable $ QTableName () None alias
+        case exists of
             Exists -> asks onCTECollision
             DoesNotExist -> pure id
 
@@ -580,17 +580,17 @@ resolveSelection (SelectStar info (Just oqtn@(QTableName _ (Just schema) _)) Unu
     columns <- asks (boundColumns . bindings)
     let qualifiedColumns = qualifiedOnly columns
     case filter ((liftA2 (&&) (resolvedTableHasSchema schema) (resolvedTableHasName oqtn)) . fst) qualifiedColumns of
-        [] -> throwError $ UnintroducedTable oqtn
+        [] -> throw $ UnintroducedTable oqtn
         [(t, cs)] -> pure $ SelectStar info (Just t) $ StarColumnNames $ map (const info <$>) cs
-        _ -> throwError $ AmbiguousTable oqtn
+        _ -> throw $ AmbiguousTable oqtn
 
 resolveSelection (SelectStar info (Just oqtn@(QTableName tableInfo Nothing table)) Unused) = do
     columns <- asks (boundColumns . bindings)
     let qualifiedColumns = qualifiedOnly columns
     case filter (resolvedTableHasName oqtn . fst) qualifiedColumns of
-        [] -> throwError $ UnintroducedTable $ QTableName tableInfo Nothing table
+        [] -> throw $ UnintroducedTable $ QTableName tableInfo Nothing table
         [(t, cs)] -> pure $ SelectStar info (Just t) $ StarColumnNames $ map (const info <$>) cs
-        _ -> throwError $ AmbiguousTable $ QTableName tableInfo Nothing table
+        _ -> throw $ AmbiguousTable $ QTableName tableInfo Nothing table
 
 resolveSelection (SelectExpr info alias expr) = SelectExpr info alias <$> resolveExpr expr
 
@@ -699,13 +699,13 @@ resolveTableName
     :: (Members (ResolverEff a) r)
     => OQTableName a -> Sem r (RTableName a)
 resolveTableName table = do
-    lift $ lift $ catalogResolveTableName table
+    catalogResolveTableName table
 
 resolveCreateTableName 
     :: (Members (ResolverEff a) r)
     => CreateTableName RawNames a -> Maybe a -> Sem r (CreateTableName ResolvedNames a)
 resolveCreateTableName tableName ifNotExists = do
-    tableName'@(RCreateTableName fqtn existence) <- lift $ lift $ catalogResolveCreateTableName tableName
+    tableName'@(RCreateTableName fqtn existence) <- catalogResolveCreateTableName tableName
 
     when ((existence, void ifNotExists) == (Exists, Nothing)) $ tell [ Left $ UnexpectedTable fqtn ]
 
@@ -716,18 +716,21 @@ resolveDropTableName
     => DropTableName RawNames a -> Sem r (DropTableName ResolvedNames a)
 resolveDropTableName tableName = do
     (getName <$> resolveTableName tableName)
-        `catchError` handleMissing
+        `catch` handleMissing
   where
     getName (RTableName name table) = RDropExistingTableName name table
+    handleMissing 
+        :: (Member (Error (ResolutionError a)) r) 
+        => ResolutionError a -> Sem r (DropTableName ResolvedNames a)
     handleMissing (MissingTable name) = pure $ RDropMissingTableName name
-    handleMissing e = throwError e
+    handleMissing e = throw e
 
 
 resolveCreateSchemaName 
     :: (Members (ResolverEff a) r)
     => CreateSchemaName RawNames a -> Maybe a -> Sem r (CreateSchemaName ResolvedNames a)
 resolveCreateSchemaName schemaName ifNotExists = do
-    schemaName'@(RCreateSchemaName fqsn existence) <- lift $ lift $ catalogResolveCreateSchemaName schemaName
+    schemaName'@(RCreateSchemaName fqsn existence) <- catalogResolveCreateSchemaName schemaName
     when ((existence, void ifNotExists) == (Exists, Nothing)) $ tell [ Left $ UnexpectedSchema fqsn ]
     pure schemaName'
 
@@ -735,7 +738,7 @@ resolveSchemaName
     :: (Members (ResolverEff a) r)
     => SchemaName RawNames a -> Sem r (SchemaName ResolvedNames a)
 resolveSchemaName schemaName = do
-    lift $ lift $ catalogResolveSchemaName schemaName
+    catalogResolveSchemaName schemaName
 
 
 resolveTableRef 
@@ -743,14 +746,14 @@ resolveTableRef
     => OQTableName a -> Sem r (WithColumns RTableRef a)
 resolveTableRef tableName = do
     ResolverInfo{bindings = Bindings{..}} <- ask
-    lift $ lift $ catalogResolveTableRef boundCTEs tableName
+    catalogResolveTableRef boundCTEs tableName
 
 resolveColumnName 
     :: (Members (ResolverEff a) r)
     => OQColumnName a -> Sem r (RColumnRef a)
 resolveColumnName columnName = do
     Bindings{..} <- asks bindings
-    lift $ lift $ catalogResolveColumnName boundColumns columnName
+    catalogResolveColumnName boundColumns columnName
 
 resolveLambdaParamOrColumnName 
     :: (Members (ResolverEff a) r)
@@ -857,6 +860,9 @@ resolveTablish (TablishLateralView info LateralView{..} lhs) = do
 
         pure $ WithColumns (TablishLateralView info view lhs') $ lcolumns ++ rcolumns
   where
+    defaultAliases
+        :: forall a r. (Members (ResolverEff a) r)
+        => Expr ResolvedNames a -> Sem r [ColumnAlias a]
     defaultAliases (FunctionExpr r (QFunctionName _ _ rawName) _ args _ _ _) = do
         let argsLessOne = length args - 1
 
@@ -886,7 +892,7 @@ resolveTablish (TablishLateralView info LateralView{..} lhs) = do
 
         sequence functionSpecificLookups
 
-    defaultAliases _ = throwError MissingFunctionExprForLateralView
+    defaultAliases _ = throw MissingFunctionExprForLateralView
 
 
 resolveJoinCondition 
@@ -909,9 +915,9 @@ resolveJoinCondition (JoinUsing info cols) lhs rhs = JoinUsing info <$> mapM res
     resolveColumn (QColumnName columnInfo _ column) = do
         let resolveIn columns =
                 case filter hasName $ snd =<< columns of
-                    [] -> throwError $ MissingColumn $ QColumnName columnInfo Nothing column
+                    [] -> throw $ MissingColumn $ QColumnName columnInfo Nothing column
                     [c] -> pure c
-                    _ -> throwError $ AmbiguousColumn $ QColumnName columnInfo Nothing column
+                    _ -> throw $ AmbiguousColumn $ QColumnName columnInfo Nothing column
             hasName (RColumnRef (QColumnName _ _ column')) = column' == column
             hasName (RColumnAlias (ColumnAlias _ column' _)) = column' == column
         l <- resolveIn lhs
@@ -941,11 +947,11 @@ resolvePositionOrExpr
     => [Expr ResolvedNames a] -> PositionOrExpr RawNames a -> Sem r (PositionOrExpr ResolvedNames a)
 resolvePositionOrExpr _ (PositionOrExprExpr expr) = PositionOrExprExpr <$> resolveExpr expr
 resolvePositionOrExpr exprs (PositionOrExprPosition info pos Unused)
-    | pos < 1 = throwError $ BadPositionalReference info pos
+    | pos < 1 = throw $ BadPositionalReference info pos
     | otherwise =
         case drop (pos - 1) exprs of
             expr:_ -> pure $ PositionOrExprPosition info pos expr
-            [] -> throwError $ BadPositionalReference info pos
+            [] -> throw $ BadPositionalReference info pos
 
 resolveGroupingElement 
     :: (Members (ResolverEff a) r)
