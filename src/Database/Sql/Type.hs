@@ -65,6 +65,7 @@ import GHC.Exts (Constraint)
 
 import Test.QuickCheck
 
+import Polysemy
 
 type ConstrainSDialectParts (c :: * -> Constraint) d r a = (c a, c (DialectCreateTableExtra d r a), c (DialectColumnDefinitionExtra d a))
 type ConstrainSASDialectParts (c :: (* -> *) -> Constraint) d r = (c (DialectCreateTableExtra d r), c (DialectColumnDefinitionExtra d))
@@ -81,8 +82,9 @@ class Dialect d where
     shouldCTEsShadowTables :: Proxy d -> Bool
     areLcolumnsVisibleInLateralViews :: Proxy d -> Bool
     getSelectScope :: forall a . Proxy d -> FromColumns a -> SelectionAliases a -> SelectScope a
-    resolveCreateTableExtra :: Proxy d -> DialectCreateTableExtra d RawNames a -> Resolver (DialectCreateTableExtra d ResolvedNames) a
-
+    resolveCreateTableExtra 
+        :: (Members (ResolverEff a) r)
+        => Proxy d -> DialectCreateTableExtra d RawNames a -> Sem r (DialectCreateTableExtra d ResolvedNames a)
 
 data Unparsed a = Unparsed a deriving (Show, Eq)
 
