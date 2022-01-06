@@ -57,6 +57,7 @@ import Data.Proxy (Proxy (..))
 import GHC.Generics (Generic)
 import Data.Data (Data)
 
+import Polysemy
 
 data Hive
 
@@ -284,7 +285,9 @@ instance HasColumnLineage (HiveStatement ResolvedNames Range) where
     getColumnLineage (HiveSetPropertyStmt _) = returnNothing M.empty
     getColumnLineage (HiveUnhandledStatement _) = returnNothing M.empty
 
-resolveHiveStatement :: HiveStatement RawNames a -> Resolver (HiveStatement ResolvedNames) a
+resolveHiveStatement 
+    :: (Members (ResolverEff a) r)
+    => HiveStatement RawNames a -> Sem r (HiveStatement ResolvedNames a)
 resolveHiveStatement (HiveStandardSqlStatement stmt) = HiveStandardSqlStatement <$> resolveStatement stmt
 resolveHiveStatement (HiveUseStmt stmt) = pure $ HiveUseStmt stmt
 resolveHiveStatement (HiveAnalyzeStmt stmt) = HiveAnalyzeStmt <$> resolveAnalyze stmt
@@ -295,7 +298,9 @@ resolveHiveStatement (HiveAlterPartitionSetLocationStmt stmt) = HiveAlterPartiti
 resolveHiveStatement (HiveSetPropertyStmt stmt) = pure $ HiveSetPropertyStmt stmt
 resolveHiveStatement (HiveUnhandledStatement stmt) = pure $ HiveUnhandledStatement stmt
 
-resolveAnalyze :: Analyze RawNames a -> Resolver (Analyze ResolvedNames) a
+resolveAnalyze 
+    :: (Members (ResolverEff a) r)
+    => Analyze RawNames a -> Sem r (Analyze ResolvedNames a)
 resolveAnalyze Analyze{..} = do
     analyzeTable' <- resolveTableName analyzeTable
     pure Analyze
@@ -303,7 +308,9 @@ resolveAnalyze Analyze{..} = do
         , ..
         }
 
-resolveInsertDirectory :: InsertDirectory RawNames a -> Resolver (InsertDirectory ResolvedNames) a
+resolveInsertDirectory 
+    :: (Members (ResolverEff a) r)
+    => InsertDirectory RawNames a -> Sem r (InsertDirectory ResolvedNames a)
 resolveInsertDirectory InsertDirectory{..} = do
     insertDirectoryQuery' <- resolveQuery insertDirectoryQuery
     pure InsertDirectory
@@ -311,7 +318,9 @@ resolveInsertDirectory InsertDirectory{..} = do
         , ..
         }
 
-resolveTruncatePartition :: TruncatePartition RawNames a -> Resolver (TruncatePartition ResolvedNames) a
+resolveTruncatePartition 
+    :: (Members (ResolverEff a) r)
+    => TruncatePartition RawNames a -> Sem r (TruncatePartition ResolvedNames a)
 resolveTruncatePartition TruncatePartition{..} = do
     truncatePartitionTruncate' <- resolveTruncate truncatePartitionTruncate
     pure TruncatePartition
@@ -319,7 +328,9 @@ resolveTruncatePartition TruncatePartition{..} = do
         , ..
         }
 
-resolveAlterTableSetLocation :: AlterTableSetLocation RawNames a -> Resolver (AlterTableSetLocation ResolvedNames) a
+resolveAlterTableSetLocation 
+    :: (Members (ResolverEff a) r)
+    => AlterTableSetLocation RawNames a -> Sem r (AlterTableSetLocation ResolvedNames a)
 resolveAlterTableSetLocation AlterTableSetLocation{..} = do
     alterTableSetLocationTable' <- resolveTableName alterTableSetLocationTable
     pure AlterTableSetLocation
@@ -327,7 +338,9 @@ resolveAlterTableSetLocation AlterTableSetLocation{..} = do
         , ..
         }
 
-resolveAlterPartitionSetLocation :: AlterPartitionSetLocation RawNames a -> Resolver (AlterPartitionSetLocation ResolvedNames) a
+resolveAlterPartitionSetLocation 
+    :: (Members (ResolverEff a) r)
+    => AlterPartitionSetLocation RawNames a -> Sem r (AlterPartitionSetLocation ResolvedNames a)
 resolveAlterPartitionSetLocation AlterPartitionSetLocation{..} = do
     alterPartitionSetLocationTable'@(RTableName fqtn table@SchemaMember{..}) <- resolveTableName alterPartitionSetLocationTable
     let tableInfo = tableNameInfo fqtn
