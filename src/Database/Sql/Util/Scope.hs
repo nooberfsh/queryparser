@@ -24,7 +24,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Database.Sql.Util.Scope
-    ( WithColumns (..)
+    ( runResolverWarn, runResolverWError, runResolverNoWarn
+    , makeResolverInfo
+    , WithColumns (..)
     , queryColumnNames, tablishColumnNames
     , resolveStatement, resolveQuery, resolveQueryWithColumns, resolveSelectAndOrders, resolveCTE, resolveInsert
     , resolveInsertValues, resolveDefaultExpr, resolveDelete, resolveTruncate
@@ -42,6 +44,7 @@ module Database.Sql.Util.Scope
 import Data.Maybe (mapMaybe)
 import Data.Either (lefts, rights)
 import Data.List (find)
+import Data.Tuple (swap)
 import Data.Function ((&))
 import Database.Sql.Type
 
@@ -52,7 +55,7 @@ import           Data.Text.Lazy (Text)
 import Control.Applicative (liftA2)
 import Control.Monad.Identity
 
-import Control.Arrow (first, (&&&))
+import Control.Arrow (first)
 
 import Data.Proxy (Proxy (..))
 
@@ -81,24 +84,37 @@ makeColumnAlias r alias = ColumnAlias r alias . ColumnAliasId <$> getNextCounter
   where
     getNextCounter = modify (subtract 1) >> get
 
--- TODOX: fix these
--- runResolverWarn :: Dialect d => Resolver r a -> Proxy d -> Catalog -> (Either (ResolutionError a) (r a), [Either (ResolutionError a) (ResolutionSuccess a)])
--- runResolverWarn resolver dialect catalog = runWriter $ runExceptT $ runReaderT (evalStateT resolver 0) $ makeResolverInfo dialect catalog
+runResolverWarn 
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter a -> (Either (ResolutionError a) (s a), [Either (ResolutionError a) (ResolutionSuccess a)])
+runResolverWarn resolver dialect runCatalog 
+    = resolver
+    & runCatalog
+    & runError
+    & (runReader $ makeResolverInfo dialect)
+    & runWriter
+    & evalState 0
+    & fmap swap
+    & run
 
 
--- runResolverWError :: Dialect d => Resolver r a -> Proxy d -> Catalog -> Either [ResolutionError a] ((r a), [ResolutionSuccess a])
--- runResolverWError resolver dialect catalog =
---    let (result, warningsSuccesses) = runResolverWarn resolver dialect catalog
---        warnings = lefts warningsSuccesses
---        successes = rights warningsSuccesses
---     in case (result, warnings) of
---            (Right x, []) -> Right (x, successes)
---            (Right _, ws) -> Left ws
---            (Left e, ws) -> Left (e:ws)
+runResolverWError 
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter a -> Either [ResolutionError a] ((s a), [ResolutionSuccess a])
+runResolverWError resolver dialect runCatalog =
+    let (result, warningsSuccesses) = runResolverWarn resolver dialect runCatalog
+        warnings = lefts warningsSuccesses
+        successes = rights warningsSuccesses
+     in case (result, warnings) of
+            (Right x, []) -> Right (x, successes)
+            (Right _, ws) -> Left ws
+            (Left e, ws) -> Left (e:ws)
 
 
--- runResolverNoWarn :: Dialect d => Resolver r a -> Proxy d -> Catalog -> Either (ResolutionError a) (r a)
--- runResolverNoWarn resolver dialect catalog = fst $ runResolverWarn resolver dialect catalog
+runResolverNoWarn 
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter a -> Either (ResolutionError a) (s a)
+runResolverNoWarn resolver dialect runCatalog = fst $ runResolverWarn resolver dialect runCatalog
 
 
 resolveStatement 

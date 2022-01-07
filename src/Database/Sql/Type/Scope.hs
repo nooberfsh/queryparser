@@ -165,12 +165,11 @@ instance Resolution ResolvedNames where
     type ComposedQueryColumns ResolvedNames = ColumnAliasList
 
 type ResolverEff a = 
-    [ PS.State Integer -- column alias generation (counts down from -1, unlike parse phase)
-    , PR.Reader (ResolverInfo a)
-    , Catalog a
-    -- CatalogEff
+    [ Catalog a
     , PE.Error (ResolutionError a)
+    , PR.Reader (ResolverInfo a)
     , PW.Writer [Either (ResolutionError a) (ResolutionSuccess a)]
+    , PS.State Integer -- column alias generation (counts down from -1, unlike parse phase)
     ] 
 
 data SchemaMember = SchemaMember
@@ -207,6 +206,7 @@ type CatalogEff a =
     , PW.Writer [Either (ResolutionError a) (ResolutionSuccess a)] -- warnings and successes
     ]
 
+type CatalogInterpreter i = forall r a. (Members (CatalogEff i) r) => Sem (Catalog i : r) a -> Sem r a
 
 data ResolutionError a
     = MissingDatabase (DatabaseName a)
@@ -378,4 +378,3 @@ instance ToJSON a => ToJSON (ColumnAliasList a) where
         ]
 
 makeSem ''Catalog
-
