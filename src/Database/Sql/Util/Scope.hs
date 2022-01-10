@@ -760,9 +760,14 @@ resolveSchemaName schemaName = do
 resolveTableRef 
     :: (Members (ResolverEff a) r)
     => OQTableName a -> Sem r (WithColumns RTableRef a)
-resolveTableRef tableName = do
+resolveTableRef oqtn = do
     ResolverInfo{bindings = Bindings{..}} <- ask
-    catalogResolveTableRef boundCTEs tableName
+    case filter (resolvedTableHasName oqtn) $ map (uncurry RTableAlias) boundCTEs of
+        [t] -> do
+            tell [Right $ TableRefResolved oqtn t]
+            pure $ WithColumns t [(Just t, getColumnList t)]
+        _:_ -> throw $ AmbiguousTable oqtn
+        [] -> catalogResolveTableRef oqtn
 
 resolveColumnName 
     :: (Members (ResolverEff a) r)

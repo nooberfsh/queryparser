@@ -101,35 +101,29 @@ runInMemoryCatalog catalog path currentDb = interpret $ \case
             False -> return DoesNotExist
             True -> return Exists
 
-    CatalogResolveTableRef _ oqtn@(QTableName _ (Just (QSchemaName _ (Just (DatabaseName _ _)) _ _)) _) ->
+    CatalogResolveTableRef oqtn@(QTableName _ (Just (QSchemaName _ (Just (DatabaseName _ _)) _ _)) _) ->
         catalogResolveTableRefHelper oqtn
 
-    CatalogResolveTableRef _ (QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName) ->
+    CatalogResolveTableRef (QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName) ->
         catalogResolveTableRefHelper $ QTableName tInfo (Just $ inCurrentDb oqsn) tableName
 
-    CatalogResolveTableRef boundCTEs oqtn@(QTableName tInfo Nothing tableName) -> do
-        case filter (resolvedTableHasName oqtn) $ map (uncurry RTableAlias) boundCTEs of
-            [t] -> do
-                tell [Right $ TableRefResolved oqtn t]
-                pure $ WithColumns t [(Just t, getColumnList t)]
-            _:_ -> throw $ AmbiguousTable oqtn
-            [] -> do
-                let getTableFromSchema uqsn@(QSchemaName _ None schemaName schemaType) = do
-                        db <- HMS.lookup currentDb catalog
-                        schema <- HMS.lookup uqsn db
-                        table@SchemaMember{..} <- HMS.lookup (QTableName () None tableName) schema
-                        let db' = fmap (const tInfo) currentDb
-                            fqsn = QSchemaName tInfo (pure db') schemaName schemaType
-                            fqtn = QTableName tInfo (pure fqsn) tableName
-                            makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
-                            tableRef = RTableRef fqtn table
-                        pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
+    CatalogResolveTableRef oqtn@(QTableName tInfo Nothing tableName) -> do
+        let getTableFromSchema uqsn@(QSchemaName _ None schemaName schemaType) = do
+                db <- HMS.lookup currentDb catalog
+                schema <- HMS.lookup uqsn db
+                table@SchemaMember{..} <- HMS.lookup (QTableName () None tableName) schema
+                let db' = fmap (const tInfo) currentDb
+                    fqsn = QSchemaName tInfo (pure db') schemaName schemaType
+                    fqtn = QTableName tInfo (pure fqsn) tableName
+                    makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
+                    tableRef = RTableRef fqtn table
+                pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
 
-                case mapMaybe getTableFromSchema path of
-                    table@(WithColumns tableRef _):_ -> do
-                        tell [Right $ TableRefResolved oqtn tableRef]
-                        pure table
-                    [] -> throw $ MissingTable oqtn
+        case mapMaybe getTableFromSchema path of
+            table@(WithColumns tableRef _):_ -> do
+                tell [Right $ TableRefResolved oqtn tableRef]
+                pure table
+            [] -> throw $ MissingTable oqtn
 
     CatalogResolveCreateSchemaName oqsn -> do
         fqsn@(QSchemaName _ (Identity db) schemaName schemaType) <- case schemaNameType oqsn of
@@ -384,45 +378,35 @@ runInMemoryDefaultingCatalog  catalog path currentDb = interpret $ \case
             False -> return DoesNotExist
             True -> return Exists
 
-    CatalogResolveTableRef _ oqtn@(QTableName _ (Just (QSchemaName _ (Just (DatabaseName _ _)) _ _)) _) ->
+    CatalogResolveTableRef oqtn@(QTableName _ (Just (QSchemaName _ (Just (DatabaseName _ _)) _ _)) _) ->
         catalogResolveTableRefHelper oqtn
 
-    CatalogResolveTableRef _ (QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName) ->
+    CatalogResolveTableRef (QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName) ->
         catalogResolveTableRefHelper $ QTableName tInfo (Just $ inCurrentDb oqsn) tableName
 
-    CatalogResolveTableRef boundCTEs oqtn@(QTableName tInfo Nothing tableName) -> do
-        case filter (resolvedTableHasName oqtn) $ map (uncurry RTableAlias) boundCTEs of
-            (t:rest) -> do
-                if null rest
-                   then tell [ Right $ TableRefResolved oqtn t ]
-                   else tell [ Left $ AmbiguousTable oqtn
-                             , Right $ TableRefDefaulted oqtn t
-                             ]
-                let ts' = map (\(t', cs) -> (Just $ RTableAlias t' cs, cs)) boundCTEs
-                pure $ WithColumns t ts'
-            [] -> do
-                let getTableFromSchema uqsn@(QSchemaName _ None schemaName schemaType) = do
-                        db <- HMS.lookup currentDb catalog
-                        schema <- HMS.lookup uqsn db
-                        table@SchemaMember{..} <- HMS.lookup (QTableName () None tableName) schema
-                        let db' = fmap (const tInfo) currentDb
-                            fqsn = QSchemaName tInfo (pure db') schemaName schemaType
-                            fqtn = QTableName tInfo (pure fqsn) tableName
-                            makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
-                            tableRef = RTableRef fqtn table
-                        pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
+    CatalogResolveTableRef oqtn@(QTableName tInfo Nothing tableName) -> do
+        let getTableFromSchema uqsn@(QSchemaName _ None schemaName schemaType) = do
+                db <- HMS.lookup currentDb catalog
+                schema <- HMS.lookup uqsn db
+                table@SchemaMember{..} <- HMS.lookup (QTableName () None tableName) schema
+                let db' = fmap (const tInfo) currentDb
+                    fqsn = QSchemaName tInfo (pure db') schemaName schemaType
+                    fqtn = QTableName tInfo (pure fqsn) tableName
+                    makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
+                    tableRef = RTableRef fqtn table
+                pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
 
-                case mapMaybe getTableFromSchema path of
-                    table@(WithColumns tableRef _):_ -> do
-                        tell [Right $ TableRefResolved oqtn tableRef]
-                        pure table
-                    [] -> do
-                        let tableRef = RTableRef (inHeadOfPath oqtn) defaultSchemaMember
-                        tell [ Left $ MissingTable oqtn
-                             , Right $ TableRefDefaulted oqtn tableRef
-                             ]
-                        -- TODO: deal with columns
-                        pure $ WithColumns tableRef [(Just tableRef, [])]
+        case mapMaybe getTableFromSchema path of
+            table@(WithColumns tableRef _):_ -> do
+                tell [Right $ TableRefResolved oqtn tableRef]
+                pure table
+            [] -> do
+                let tableRef = RTableRef (inHeadOfPath oqtn) defaultSchemaMember
+                tell [ Left $ MissingTable oqtn
+                     , Right $ TableRefDefaulted oqtn tableRef
+                     ]
+                -- TODO: deal with columns
+                pure $ WithColumns tableRef [(Just tableRef, [])]
 
     CatalogResolveCreateSchemaName oqsn -> do
         fqsn@(QSchemaName _ (Identity db) schemaName schemaType) <- case schemaNameType oqsn of

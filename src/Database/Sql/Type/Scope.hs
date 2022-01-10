@@ -196,7 +196,7 @@ data Catalog i m a where
     CatalogHasDatabase :: DatabaseName () -> Catalog i m Existence
     CatalogHasSchema :: UQSchemaName () -> Catalog i m Existence
     CatalogHasTable :: UQTableName () -> Catalog i m Existence  -- | nb DoesNotExist does not imply that we can't resolve to this name (defaulting)
-    CatalogResolveTableRef :: [(TableAlias i, [RColumnRef i])] -> OQTableName i -> Catalog i m (WithColumns RTableRef i)
+    CatalogResolveTableRef :: OQTableName i -> Catalog i m (WithColumns RTableRef i)
     CatalogResolveCreateSchemaName :: OQSchemaName i -> Catalog i m (RCreateSchemaName i)
     CatalogResolveCreateTableName :: OQTableName i -> Catalog i m (RCreateTableName i)
     CatalogResolveColumnName :: [(Maybe (RTableRef i), [RColumnRef i])] -> OQColumnName i -> Catalog i m (RColumnRef i)
