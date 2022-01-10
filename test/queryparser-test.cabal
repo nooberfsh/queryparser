@@ -89,17 +89,31 @@ library
                      , test-framework-quickcheck2
                      , QuickCheck
                      , syb
+                     , polysemy
+                     , polysemy-plugin
   hs-source-dirs:      .
 
   ghc-options: -Wall -Werror -with-rtsopts=-M5M
+               -O2 -flate-specialise -fspecialise-aggressively
+               -fplugin=Polysemy.Plugin
 
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings
-                     , LambdaCase
                      , RecordWildCards
                      , TupleSections
                      , ConstraintKinds
                      , FlexibleInstances
+                     -- extensions for polysemy
+                     , DataKinds 
+                     , FlexibleContexts 
+                     , GADTs
+                     , LambdaCase
+                     , PolyKinds
+                     , RankNTypes
+                     , ScopedTypeVariables
+                     , TypeApplications
+                     , TypeOperators
+                     , TypeFamilies
 
 test-suite queryparser-test-suite
   type:                exitcode-stdio-1.0
@@ -152,13 +166,27 @@ test-suite queryparser-test-suite
                      , test-framework-quickcheck2
                      , QuickCheck
                      , syb
+                     , polysemy
+                     , polysemy-plugin
   hs-source-dirs:      .
   ghc-options: -Wall -Werror -with-rtsopts=-M5M
+               -O2 -flate-specialise -fspecialise-aggressively
+               -fplugin=Polysemy.Plugin
 
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings
-                     , LambdaCase
                      , RecordWildCards
                      , TupleSections
                      , ConstraintKinds
                      , FlexibleInstances
+                     -- extensions for polysemy
+                     , DataKinds 
+                     , FlexibleContexts 
+                     , GADTs
+                     , LambdaCase
+                     , PolyKinds
+                     , RankNTypes
+                     , ScopedTypeVariables
+                     , TypeApplications
+                     , TypeOperators
+                     , TypeFamilies

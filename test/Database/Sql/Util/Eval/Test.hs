@@ -71,16 +71,16 @@ instance Evaluate Concrete (PrestoStatement ResolvedNames Range) where
     eval p (PrestoStandardSqlStatement (QueryStmt query)) = eval p query
     eval _ _ = error "can't evaluate"
 
-testHive :: TL.Text -> Catalog -> (Eval Concrete 'TableContext (RecordSet Concrete) -> Assertion) -> [Assertion]
+testHive :: TL.Text -> CatalogInterpreter -> (Eval Concrete 'TableContext (RecordSet Concrete) -> Assertion) -> [Assertion]
 testHive = Test.testResolvedHive (Proxy :: Proxy (Evaluate Concrete))
 
-testVertica :: TL.Text -> Catalog -> (Eval Concrete 'TableContext (RecordSet Concrete) -> Assertion) -> [Assertion]
+testVertica :: TL.Text -> CatalogInterpreter -> (Eval Concrete 'TableContext (RecordSet Concrete) -> Assertion) -> [Assertion]
 testVertica = Test.testResolvedVertica (Proxy :: Proxy (Evaluate Concrete))
 
-testPresto :: TL.Text -> Catalog -> (Eval Concrete 'TableContext (RecordSet Concrete) -> Assertion) -> [Assertion]
+testPresto :: TL.Text -> CatalogInterpreter -> (Eval Concrete 'TableContext (RecordSet Concrete) -> Assertion) -> [Assertion]
 testPresto = Test.testResolvedPresto (Proxy :: Proxy (Evaluate Concrete))
 
-testAll :: TL.Text -> Catalog -> (Eval Concrete 'TableContext (RecordSet Concrete) -> Assertion) -> [Assertion]
+testAll :: TL.Text -> CatalogInterpreter -> (Eval Concrete 'TableContext (RecordSet Concrete) -> Assertion) -> [Assertion]
 testAll = Test.testResolvedAll (Proxy :: Proxy (Evaluate Concrete))
 
 assertQuickCheck :: Test.QuickCheck.Testable prop => String -> prop -> Assertion
@@ -232,8 +232,8 @@ inDefaultDatabase name = QSchemaName () (pure defaultDatabase) name NormalSchema
 publicSchema :: UQSchemaName ()
 publicSchema = mkNormalSchema "public" ()
 
-defaultTestCatalog :: Catalog
-defaultTestCatalog = makeCatalog (mkCatalog defaultCatalogProxy) [publicSchema] defaultDatabase
+defaultTestCatalog :: CatalogInterpreter
+defaultTestCatalog = runInMemoryCatalog (mkCatalog defaultCatalogProxy) [publicSchema] defaultDatabase
 
 tests :: Test
 tests = test

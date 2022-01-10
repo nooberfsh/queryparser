@@ -44,13 +44,13 @@ instance Test.TestableAnalysis HasJoins a where
 
     runTest _ _ = getJoins
 
-testHive :: Text -> Catalog -> (JoinsResult -> Assertion) -> [Assertion]
+testHive :: Text -> CatalogInterpreter -> (JoinsResult -> Assertion) -> [Assertion]
 testHive = Test.testResolvedHive (Proxy :: Proxy HasJoins)
 
-testVertica :: Text -> Catalog -> (JoinsResult -> Assertion) -> [Assertion]
+testVertica :: Text -> CatalogInterpreter -> (JoinsResult -> Assertion) -> [Assertion]
 testVertica = Test.testResolvedVertica (Proxy :: Proxy HasJoins)
 
-testAll :: Text -> Catalog -> (JoinsResult -> Assertion) -> [Assertion]
+testAll :: Text -> CatalogInterpreter -> (JoinsResult -> Assertion) -> [Assertion]
 testAll = Test.testResolvedAll (Proxy :: Proxy HasJoins)
 
 testJoins :: Test
@@ -256,8 +256,8 @@ defaultDatabase = DatabaseName () "default_db"
 publicSchema :: UQSchemaName ()
 publicSchema = mkNormalSchema "public" ()
 
-defaultTestCatalog :: Catalog
-defaultTestCatalog = makeCatalog
+defaultTestCatalog :: CatalogInterpreter
+defaultTestCatalog = runInMemoryCatalog
     ( HMS.singleton defaultDatabase $ HMS.fromList
         [ ( publicSchema
           , HMS.fromList

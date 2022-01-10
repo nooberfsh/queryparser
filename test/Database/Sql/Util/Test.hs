@@ -52,7 +52,7 @@ import GHC.Exts (Constraint)
 class TestableAnalysis (q :: * -> Constraint) a where
     type TestResult q a
 
-    runTest :: q a => Proxy q -> Catalog -> a -> TestResult q a
+    runTest :: q a => Proxy q -> CatalogInterpreter -> a -> TestResult q a
 
 data TestAnalysis q =
     forall d a .
@@ -62,7 +62,7 @@ data TestAnalysis q =
         , q (ParseResult d)
         ) => RawTestAnalysis
             { sql :: Text
-            , catalog :: Catalog
+            , catalog :: CatalogInterpreter
             , check :: TestResult q a -> Assertion
             , dialect :: Proxy d
             }
@@ -74,7 +74,7 @@ data TestAnalysis q =
         , q (Resolved (ParseResult d))
         ) => ResolvedTestAnalysis
             { sql :: Text
-            , catalog :: Catalog
+            , catalog :: CatalogInterpreter
             , check :: TestResult q a -> Assertion
             , dialect :: Proxy d
             }
@@ -97,7 +97,7 @@ instance ParseableDialect Presto where
 
 class Resolvable a where
     type Resolved a
-    resolve :: Catalog -> a -> Resolved a
+    resolve :: CatalogInterpreter -> a -> Resolved a
 
 instance Resolvable (VerticaStatement RawNames Range) where
     type Resolved (VerticaStatement RawNames Range) = VerticaStatement ResolvedNames Range
@@ -120,21 +120,21 @@ instance Resolvable (PrestoStatement RawNames Range) where
 testRawHive :: forall q r a .
     ( a ~ HiveStatement RawNames Range
     , TestableAnalysis q a, q a, r ~ TestResult q a
-    ) => Proxy q -> Text -> Catalog -> (r -> Assertion) -> [Assertion]
+    ) => Proxy q -> Text -> CatalogInterpreter -> (r -> Assertion) -> [Assertion]
 testRawHive _ sql catalog check =
     [ let dialect = Proxy :: Proxy Hive in runTestAnalysis $ (RawTestAnalysis{..} :: TestAnalysis q) ]
 
 testRawVertica :: forall q r a .
     ( a ~ VerticaStatement RawNames Range
     , TestableAnalysis q a, q a, r ~ TestResult q a
-    ) => Proxy q -> Text -> Catalog -> (r -> Assertion) -> [Assertion]
+    ) => Proxy q -> Text -> CatalogInterpreter -> (r -> Assertion) -> [Assertion]
 testRawVertica _ sql catalog check =
     [ let dialect = Proxy :: Proxy Vertica in runTestAnalysis $ (RawTestAnalysis{..} :: TestAnalysis q) ]
 
 testRawPresto :: forall q r a .
     ( a ~ PrestoStatement RawNames Range
     , TestableAnalysis q a, q a, r ~ TestResult q a
-    ) => Proxy q -> Text -> Catalog -> (r -> Assertion) -> [Assertion]
+    ) => Proxy q -> Text -> CatalogInterpreter -> (r -> Assertion) -> [Assertion]
 testRawPresto _ sql catalog check =
     [ let dialect = Proxy :: Proxy Presto in runTestAnalysis $ (RawTestAnalysis{..} :: TestAnalysis q) ]
 
@@ -145,7 +145,7 @@ testRawAll :: forall q r a b c .
     , TestableAnalysis q a, q a, r ~ TestResult q a
     , TestableAnalysis q b, q b, r ~ TestResult q b
     , TestableAnalysis q c, q c, r ~ TestResult q c
-    ) => Proxy q -> Text -> Catalog -> (r -> Assertion) -> [Assertion]
+    ) => Proxy q -> Text -> CatalogInterpreter -> (r -> Assertion) -> [Assertion]
 testRawAll _ sql catalog check =
     [ let dialect = Proxy :: Proxy Vertica in runTestAnalysis $ (RawTestAnalysis{..} :: TestAnalysis q)
     , let dialect = Proxy :: Proxy Hive in runTestAnalysis $ (RawTestAnalysis{..} :: TestAnalysis q)
@@ -155,21 +155,21 @@ testRawAll _ sql catalog check =
 testResolvedHive :: forall q r a .
     ( a ~ HiveStatement ResolvedNames Range
     , TestableAnalysis q a, q a, r ~ TestResult q a
-    ) => Proxy q -> Text -> Catalog -> (r -> Assertion) -> [Assertion]
+    ) => Proxy q -> Text -> CatalogInterpreter -> (r -> Assertion) -> [Assertion]
 testResolvedHive _ sql catalog check =
     [ let dialect = Proxy :: Proxy Hive in runTestAnalysis $ (ResolvedTestAnalysis{..} :: TestAnalysis q) ]
 
 testResolvedVertica :: forall q r a .
     ( TestableAnalysis q a , q a, a ~ VerticaStatement ResolvedNames Range
     , r ~ TestResult q a
-    ) => Proxy q -> Text -> Catalog -> (r -> Assertion) -> [Assertion]
+    ) => Proxy q -> Text -> CatalogInterpreter -> (r -> Assertion) -> [Assertion]
 testResolvedVertica _ sql catalog check =
     [ let dialect = Proxy :: Proxy Vertica in runTestAnalysis $ (ResolvedTestAnalysis{..} :: TestAnalysis q) ]
 
 testResolvedPresto :: forall q r a .
     ( TestableAnalysis q a , q a, a ~ PrestoStatement ResolvedNames Range
     , r ~ TestResult q a
-    ) => Proxy q -> Text -> Catalog -> (r -> Assertion) -> [Assertion]
+    ) => Proxy q -> Text -> CatalogInterpreter -> (r -> Assertion) -> [Assertion]
 testResolvedPresto _ sql catalog check =
     [ let dialect = Proxy :: Proxy Presto in runTestAnalysis $ (ResolvedTestAnalysis{..} :: TestAnalysis q) ]
 
@@ -180,7 +180,7 @@ testResolvedAll :: forall q r a b c .
     , TestableAnalysis q a, q a, r ~ TestResult q a
     , TestableAnalysis q b, q b, r ~ TestResult q b
     , TestableAnalysis q c, q c, r ~ TestResult q c
-    ) => Proxy q -> Text -> Catalog -> (r -> Assertion) -> [Assertion]
+    ) => Proxy q -> Text -> CatalogInterpreter -> (r -> Assertion) -> [Assertion]
 testResolvedAll _ sql catalog check =
     [ let dialect = Proxy :: Proxy Vertica in runTestAnalysis $ (ResolvedTestAnalysis{..} :: TestAnalysis q)
     , let dialect = Proxy :: Proxy Hive in runTestAnalysis $ (ResolvedTestAnalysis{..} :: TestAnalysis q)

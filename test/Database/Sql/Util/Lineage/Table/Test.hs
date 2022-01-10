@@ -42,13 +42,13 @@ instance Test.TestableAnalysis HasTableLineage a where
     type TestResult HasTableLineage a = TableLineage
     runTest _ _ = getTableLineage
 
-testHive :: TL.Text -> Catalog -> (TableLineage -> Assertion) -> [Assertion]
+testHive :: TL.Text -> CatalogInterpreter -> (TableLineage -> Assertion) -> [Assertion]
 testHive = Test.testResolvedHive (Proxy :: Proxy HasTableLineage)
 
-testVertica :: TL.Text -> Catalog -> (TableLineage -> Assertion) -> [Assertion]
+testVertica :: TL.Text -> CatalogInterpreter -> (TableLineage -> Assertion) -> [Assertion]
 testVertica = Test.testResolvedVertica (Proxy :: Proxy HasTableLineage)
 
-testAll :: TL.Text -> Catalog -> (TableLineage -> Assertion) -> [Assertion]
+testAll :: TL.Text -> CatalogInterpreter -> (TableLineage -> Assertion) -> [Assertion]
 testAll = Test.testResolvedAll (Proxy :: Proxy HasTableLineage)
 
 
@@ -201,8 +201,8 @@ defaultDatabase = DatabaseName () "default_db"
 publicSchema :: UQSchemaName ()
 publicSchema = mkNormalSchema "public" ()
 
-defaultTestCatalog :: Catalog
-defaultTestCatalog = makeCatalog
+defaultTestCatalog :: CatalogInterpreter
+defaultTestCatalog = runInMemoryCatalog
     ( HMS.singleton defaultDatabase $ HMS.fromList
         [ ( publicSchema
           , HMS.fromList

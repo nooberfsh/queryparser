@@ -44,13 +44,13 @@ instance Test.TestableAnalysis HasColumnLineage a where
     type TestResult HasColumnLineage a = ColumnLineagePlus
     runTest _ _ = snd . getColumnLineage
 
-testHive :: TL.Text -> Catalog -> (ColumnLineagePlus -> Assertion) -> [Assertion]
+testHive :: TL.Text -> CatalogInterpreter -> (ColumnLineagePlus -> Assertion) -> [Assertion]
 testHive = Test.testResolvedHive (Proxy :: Proxy HasColumnLineage)
 
-testVertica :: TL.Text -> Catalog -> (ColumnLineagePlus -> Assertion) -> [Assertion]
+testVertica :: TL.Text -> CatalogInterpreter -> (ColumnLineagePlus -> Assertion) -> [Assertion]
 testVertica = Test.testResolvedVertica (Proxy :: Proxy HasColumnLineage)
 
-testAll :: TL.Text -> Catalog -> (ColumnLineagePlus -> Assertion) -> [Assertion]
+testAll :: TL.Text -> CatalogInterpreter -> (ColumnLineagePlus -> Assertion) -> [Assertion]
 testAll = Test.testResolvedAll (Proxy :: Proxy HasColumnLineage)
 
 
@@ -468,8 +468,8 @@ defaultDatabase = DatabaseName () "default_db"
 publicSchema :: UQSchemaName ()
 publicSchema = mkNormalSchema "public" ()
 
-defaultTestCatalog :: Catalog
-defaultTestCatalog = makeCatalog (mkCatalog defaultCatalogProxy) [publicSchema] defaultDatabase
+defaultTestCatalog :: CatalogInterpreter
+defaultTestCatalog = runInMemoryCatalog (mkCatalog defaultCatalogProxy) [publicSchema] defaultDatabase
 
 tests :: Test
 tests = test [ testColumnLineage ]
