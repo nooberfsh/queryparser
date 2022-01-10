@@ -86,7 +86,7 @@ makeColumnAlias r alias = ColumnAlias r alias . ColumnAliasId <$> getNextCounter
 
 runResolverWarn 
     :: Dialect d 
-    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter a -> (Either (ResolutionError a) (s a), [Either (ResolutionError a) (ResolutionSuccess a)])
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> (Either (ResolutionError a) (s a), [Either (ResolutionError a) (ResolutionSuccess a)])
 runResolverWarn resolver dialect runCatalog 
     = resolver
     & runCatalog
@@ -100,7 +100,7 @@ runResolverWarn resolver dialect runCatalog
 
 runResolverWError 
     :: Dialect d 
-    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter a -> Either [ResolutionError a] ((s a), [ResolutionSuccess a])
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either [ResolutionError a] ((s a), [ResolutionSuccess a])
 runResolverWError resolver dialect runCatalog =
     let (result, warningsSuccesses) = runResolverWarn resolver dialect runCatalog
         warnings = lefts warningsSuccesses
@@ -113,7 +113,7 @@ runResolverWError resolver dialect runCatalog =
 
 runResolverNoWarn 
     :: Dialect d 
-    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter a -> Either (ResolutionError a) (s a)
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either (ResolutionError a) (s a)
 runResolverNoWarn resolver dialect runCatalog = fst $ runResolverWarn resolver dialect runCatalog
 
 

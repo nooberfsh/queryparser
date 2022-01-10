@@ -206,7 +206,7 @@ type CatalogEff a =
     , PW.Writer [Either (ResolutionError a) (ResolutionSuccess a)] -- warnings and successes
     ]
 
-type CatalogInterpreter i = forall r a. (Members (CatalogEff i) r) => Sem (Catalog i : r) a -> Sem r a
+type CatalogInterpreter = forall i r a. (Members (CatalogEff i) r) => Sem (Catalog i : r) a -> Sem r a
 
 data ResolutionError a
     = MissingDatabase (DatabaseName a)
