@@ -43,8 +43,6 @@ import           Database.Sql.Type
 
 import           Control.Arrow (first)
 
-import Polysemy
-
 instance Test.TestableAnalysis HasColumns a where
     type TestResult HasColumns a = Set ColumnAccess
     runTest _ _ = getColumns
@@ -367,8 +365,8 @@ testColumnAccesses = test
                                  ]
                                )
                              ]
-              specialCatalog :: (Members (CatalogEff i) r) => Sem (Catalog i : r) a -> Sem r a
-              specialCatalog = runInMemoryCatalog catalogMap [publicSchema] defaultDatabase
+              specialCatalog :: CatalogInterpreter
+              specialCatalog = (runInMemoryCatalog, InMemoryCatalog catalogMap [publicSchema] defaultDatabase)
               query = TL.unlines
                 [ "SELECT x.col1a, c.col4"
                 , "FROM ("
@@ -438,7 +436,7 @@ publicSchema :: UQSchemaName ()
 publicSchema = mkNormalSchema "public" ()
 
 defaultTestCatalog :: CatalogInterpreter
-defaultTestCatalog = runInMemoryCatalog
+defaultTestCatalog = (runInMemoryCatalog, InMemoryCatalog
     ( HMS.singleton defaultDatabase $ HMS.fromList
         [ ( publicSchema
           , HMS.fromList
@@ -457,6 +455,7 @@ defaultTestCatalog = runInMemoryCatalog
     )
     [ publicSchema ]
     defaultDatabase
+    )
 
 tests :: Test
 tests = test [ testColumnAccesses ]

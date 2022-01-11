@@ -233,7 +233,7 @@ publicSchema :: UQSchemaName ()
 publicSchema = mkNormalSchema "public" ()
 
 defaultTestCatalog :: CatalogInterpreter
-defaultTestCatalog = runInMemoryCatalog (mkCatalog defaultCatalogProxy) [publicSchema] defaultDatabase
+defaultTestCatalog = (runInMemoryCatalog, InMemoryCatalog (mkCatalog defaultCatalogProxy) [publicSchema] defaultDatabase)
 
 tests :: Test
 tests = test

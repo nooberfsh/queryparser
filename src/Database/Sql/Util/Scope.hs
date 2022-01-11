@@ -82,14 +82,15 @@ makeColumnAlias
     => a -> Text -> Sem r (ColumnAlias a)
 makeColumnAlias r alias = ColumnAlias r alias . ColumnAliasId <$> getNextCounter
   where
-    getNextCounter = modify (subtract 1) >> get
+    getNextCounter = modify @Integer (subtract 1) >> get @Integer
 
 runResolverWarn 
     :: Dialect d 
     => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> (Either (ResolutionError a) (s a), [Either (ResolutionError a) (ResolutionSuccess a)])
-runResolverWarn resolver dialect runCatalog 
+runResolverWarn resolver dialect (runCatalog, catalog)
     = resolver
     & runCatalog
+    & evalState catalog
     & runError
     & (runReader $ makeResolverInfo dialect)
     & runWriter
@@ -101,8 +102,8 @@ runResolverWarn resolver dialect runCatalog
 runResolverWError 
     :: Dialect d 
     => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either [ResolutionError a] ((s a), [ResolutionSuccess a])
-runResolverWError resolver dialect runCatalog =
-    let (result, warningsSuccesses) = runResolverWarn resolver dialect runCatalog
+runResolverWError resolver dialect interpreter =
+    let (result, warningsSuccesses) = runResolverWarn resolver dialect interpreter
         warnings = lefts warningsSuccesses
         successes = rights warningsSuccesses
      in case (result, warnings) of
@@ -114,7 +115,7 @@ runResolverWError resolver dialect runCatalog =
 runResolverNoWarn 
     :: Dialect d 
     => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either (ResolutionError a) (s a)
-runResolverNoWarn resolver dialect runCatalog = fst $ runResolverWarn resolver dialect runCatalog
+runResolverNoWarn resolver dialect interpreter = fst $ runResolverWarn resolver dialect interpreter
 
 
 resolveStatement 

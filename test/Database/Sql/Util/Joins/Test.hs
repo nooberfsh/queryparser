@@ -257,7 +257,7 @@ publicSchema :: UQSchemaName ()
 publicSchema = mkNormalSchema "public" ()
 
 defaultTestCatalog :: CatalogInterpreter
-defaultTestCatalog = runInMemoryCatalog
+defaultTestCatalog = (runInMemoryCatalog, InMemoryCatalog
     ( HMS.singleton defaultDatabase $ HMS.fromList
         [ ( publicSchema
           , HMS.fromList
@@ -279,6 +279,7 @@ defaultTestCatalog = runInMemoryCatalog
     )
     [ publicSchema ]
     defaultDatabase
+    )
 
 tests :: Test
 tests = test [ testJoins ]

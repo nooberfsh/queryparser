@@ -150,12 +150,12 @@ testNoResolveErrors =
 
      in test
         [ "test for regressions on the ambiguous-columns bug (D687922)" ~:
-          map (TestCase . parsesAndResolvesSuccessfullyVertica (runInMemoryCatalog catalog path currentDatabase))
+          map (TestCase . parsesAndResolvesSuccessfullyVertica (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT col FROM foo GROUP BY col;"
             ]
 
         , "test that struct-field access resolves in various clauses" ~:
-          map (TestCase . parsesAndResolvesSuccessfullyHive (runInMemoryCatalog catalog path currentDatabase))
+          map (TestCase . parsesAndResolvesSuccessfullyHive (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT col.field FROM foo;"  -- SELECT
             , "SELECT * FROM foo WHERE EXISTS (SELECT * FROM bar WHERE col.field = bar.b);" -- SELECT, correlated subquery (bonus points!)
             , "SELECT * FROM foo WHERE col.field > 0;"  --WHERE
@@ -166,7 +166,7 @@ testNoResolveErrors =
             ]
 
         , ticket "T541187" $
-          map (parsesAndResolvesSuccessfullyHive (runInMemoryCatalog catalog path currentDatabase))
+          map (parsesAndResolvesSuccessfullyHive (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT * FROM foo LATERAL VIEW explode(col.field) foo;"  -- FROM
             , "SELECT col.field, count(*) FROM foo GROUP BY col.field;" -- GROUP
             , TL.unlines -- HAVING
@@ -181,7 +181,7 @@ testNoResolveErrors =
             ]
 
         , "test that TablishAliasesTC introduce the column aliases correctly" ~:
-          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog catalog path currentDatabase))
+          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT cAlias FROM foo AS tAlias (cAlias) WHERE cAlias > 10;"
             , "SELECT        cAlias FROM foo AS tAlias (cAlias) ORDER BY        cAlias;"
             , "SELECT        cAlias FROM foo AS tAlias (cAlias) ORDER BY tAlias.cAlias;"
@@ -196,7 +196,7 @@ testNoResolveErrors =
                 ]
             ]
         , "test named window" ~:
-          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog catalog path currentDatabase))
+          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT sum(col) OVER x FROM foo WINDOW x AS (partition by col);"
             , "SELECT sum(col) OVER (x) FROM foo WINDOW x AS (partition by col);"
             , "SELECT sum(col) OVER (x ORDER BY col) FROM foo WINDOW x AS (partition by col);"
@@ -861,7 +861,7 @@ testResolutionOnASTs = test
         ]
 
     , "test resolution on some tricky queries" ~:
-        [ "SELECT (SELECT foo.x) FROM (SELECT 1 x) foo;" ~: testVertica "TRICKY" (runInMemoryCatalog HMS.empty [] (defaultDatabase ()))
+        [ "SELECT (SELECT foo.x) FROM (SELECT 1 x) foo;" ~: testVertica "TRICKY" (runInMemoryCatalog, InMemoryCatalog HMS.empty [] (defaultDatabase ()))
             ( VerticaStandardSqlStatement
                 ( QueryStmt
                     ( QuerySelect 1
@@ -2059,7 +2059,7 @@ testDefaulting = test
         ]
 
     , "test resolution on some tricky queries" ~:
-        [ "SELECT (SELECT foo.x) FROM (SELECT 1 x) foo;" ~: testVertica "TRICKY2" (runInMemoryCatalog HMS.empty [] (defaultDatabase ()))
+        [ "SELECT (SELECT foo.x) FROM (SELECT 1 x) foo;" ~: testVertica "TRICKY2" (runInMemoryCatalog, InMemoryCatalog HMS.empty [] (defaultDatabase ()))
             ( VerticaStandardSqlStatement
                 ( QueryStmt
                     ( QuerySelect 1
@@ -2741,16 +2741,17 @@ defaultTestCatalogMap =
         ]
 
 defaultTestCatalog :: CatalogInterpreter
-defaultTestCatalog = runInMemoryCatalog 
+defaultTestCatalog = (runInMemoryCatalog, InMemoryCatalog
     defaultTestCatalogMap
     [ mkNormalSchema "public" () ]
     ( defaultDatabase () )
+    )
 
 defaultDefaultingTestCatalog :: CatalogInterpreter
-defaultDefaultingTestCatalog = runInMemoryDefaultingCatalog defaultTestCatalogMap [mkNormalSchema "public" ()] (defaultDatabase ())
+defaultDefaultingTestCatalog = (runInMemoryDefaultingCatalog, InMemoryCatalog defaultTestCatalogMap [mkNormalSchema "public" ()] (defaultDatabase ()))
 
 pathologicalSemiJoinStructAccessorCatalog :: CatalogInterpreter
-pathologicalSemiJoinStructAccessorCatalog = runInMemoryCatalog
+pathologicalSemiJoinStructAccessorCatalog = (runInMemoryCatalog, InMemoryCatalog
     ( HMS.singleton (defaultDatabase ()) $ HMS.fromList
         [ ( mkNormalSchema "public" ()
           , HMS.fromList
@@ -2771,6 +2772,7 @@ pathologicalSemiJoinStructAccessorCatalog = runInMemoryCatalog
     )
     defaultTestPath
     (defaultDatabase ())
+    )
 
 tests :: Test
 tests = test [ testResolutionOnASTs

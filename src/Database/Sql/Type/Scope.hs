@@ -189,6 +189,23 @@ type CatalogMap = HashMap (DatabaseName ()) DatabaseMap
 type Path = [UQSchemaName ()]
 type CurrentDatabase = DatabaseName ()
 
+data InMemoryCatalog = InMemoryCatalog
+    { catalog :: CatalogMap
+    , path :: Path
+    , currentDb :: CurrentDatabase
+    }
+
+inCurrentDb :: Applicative g => QSchemaName f a -> CurrentDatabase -> QSchemaName g a
+inCurrentDb (QSchemaName sInfo _ schemaName schemaType) currentDb =
+    let db = fmap (const sInfo) currentDb
+     in QSchemaName sInfo (pure db) schemaName schemaType
+
+inHeadOfPath :: Applicative g => QTableName f a -> Path -> CurrentDatabase -> QTableName g a
+inHeadOfPath (QTableName tInfo _ tableName) path currentDb =
+    let db = fmap (const tInfo) currentDb
+        QSchemaName _ None schemaName schemaType = head path
+        fqsn = QSchemaName tInfo (pure db) schemaName schemaType
+     in QTableName tInfo (pure fqsn) tableName
 
 data Catalog i m a where
     CatalogResolveSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
@@ -206,7 +223,7 @@ type CatalogEff a =
     , PW.Writer [Either (ResolutionError a) (ResolutionSuccess a)] -- warnings and successes
     ]
 
-type CatalogInterpreter = forall i r a. (Members (CatalogEff i) r) => Sem (Catalog i : r) a -> Sem r a
+type CatalogInterpreter = forall i r a. (Members (CatalogEff i) r) => (Sem (Catalog i : r) a -> Sem (PS.State InMemoryCatalog : r) a, InMemoryCatalog)
 
 data ResolutionError a
     = MissingDatabase (DatabaseName a)

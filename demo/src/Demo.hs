@@ -38,8 +38,6 @@ import Data.Semigroup
 
 import Text.PrettyPrint (Doc, hcat, hsep, nest, text, vcat)
 
-import Polysemy
-
 -- let's provide a really simple function to do parsing!
 -- It will have ungraceful error handling.
 parse :: TL.Text -> VerticaStatement RawNames ()
@@ -52,10 +50,8 @@ runResolver:: VerticaStatement RawNames a -> (Either (ResolutionError a) (Vertic
 runResolver raw = runResolverWarn (resolveVerticaStatement raw) (Proxy :: Proxy Vertica) catalogInterpreter
 
 -- and construct a catalog, with tables `foo` (columns a, b, and c) and `bar` (columns x, y, and z)
-catalogInterpreter 
-    :: (Members (CatalogEff a) r)
-    => Sem (Catalog a:r) s -> Sem r s
-catalogInterpreter = runInMemoryDefaultingCatalog catalogMap [defaultSchema] defaultDatabase
+catalogInterpreter  :: CatalogInterpreter
+catalogInterpreter = (runInMemoryDefaultingCatalog, InMemoryCatalog catalogMap [defaultSchema] defaultDatabase)
   where
     defaultDatabase :: DatabaseName ()
     defaultDatabase = DatabaseName () "defaultDatabase"
