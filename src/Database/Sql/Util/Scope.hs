@@ -41,7 +41,7 @@ module Database.Sql.Util.Scope
     , selectionNames, mkTableSchemaMember
     ) where
 
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, isJust)
 import Data.Either (lefts, rights)
 import Data.List (find)
 import Data.Tuple (swap)
@@ -569,10 +569,12 @@ resolveCreateSchema
     => CreateSchema RawNames a -> Sem r (CreateSchema ResolvedNames a)
 resolveCreateSchema CreateSchema{..} = do
     createSchemaName' <- catalogResolveCreateSchemaName createSchemaName
-    pure $ CreateSchema
-        { createSchemaName = createSchemaName'
-        , ..
-        }
+    let ret = CreateSchema
+                { createSchemaName = createSchemaName'
+                , ..
+                }
+    catalogResolveCreateSchema createSchemaName' $ isJust createSchemaIfNotExists
+    pure ret
 
 
 resolveSelectColumns 

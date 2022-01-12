@@ -244,6 +244,22 @@ runInMemoryCatalog = reinterpret $ \case
                 pure c'
             _ -> throw $ AmbiguousColumn oqcn
 
+    CatalogResolveCreateSchema (QSchemaName _ _ _ SessionSchema) _ -> error "can't create the session schema"
+
+    CatalogResolveCreateSchema fqsn@(QSchemaName _ (Identity db) schemaName NormalSchema) createIfNotExists -> do
+        InMemoryCatalog {..} <- get
+        case HMS.lookup (void db) catalog of
+            Nothing -> throw $ MissingDatabase db
+            Just database -> 
+                if HMS.member (QSchemaName () None schemaName NormalSchema) database then
+                    if createIfNotExists then pure () else throw $ UnexpectedSchema fqsn
+                else do
+                    let fqsn' = QSchemaName () None schemaName NormalSchema
+                        newDb = HMS.insert fqsn' HMS.empty database
+                        newCatalog = HMS.insert (void db) newDb catalog
+                    put InMemoryCatalog {catalog = newCatalog, ..}
+                    pure ()
+
   where
     catalogResolveTableNameHelper 
         :: (Members (CatalogEff a) r)
@@ -548,6 +564,22 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
                               , Right $ ColumnRefDefaulted oqcn c'
                               ]
                 pure c'
+
+    CatalogResolveCreateSchema (QSchemaName _ _ _ SessionSchema) _ -> error "can't create the session schema"
+
+    CatalogResolveCreateSchema fqsn@(QSchemaName _ (Identity db) schemaName NormalSchema) createIfNotExists -> do
+        InMemoryCatalog {..} <- get
+        case HMS.lookup (void db) catalog of
+            Nothing -> tell [Left $ MissingDatabase db]
+            Just database -> 
+                if HMS.member (QSchemaName () None schemaName NormalSchema) database then
+                    if createIfNotExists then pure () else tell [Left $ UnexpectedSchema fqsn]
+                else do
+                    let fqsn' = QSchemaName () None schemaName NormalSchema
+                        newDb = HMS.insert fqsn' HMS.empty database
+                        newCatalog = HMS.insert (void db) newDb catalog
+                    put InMemoryCatalog {catalog = newCatalog, ..}
+                    pure ()
 
   where
     catalogResolveTableNameHelper 
