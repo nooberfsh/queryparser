@@ -425,9 +425,9 @@ resolveCreateTable
     :: forall d a r. (Dialect d, Members (ResolverEff a) r)
     => CreateTable d RawNames a -> Sem r (CreateTable d ResolvedNames a)
 resolveCreateTable CreateTable{..} = do
-    createTableName'@(RCreateTableName fqtn _) <- resolveCreateTableName createTableName createTableIfNotExists
+    createTableName' <- catalogResolveCreateTableName createTableName 
 
-    WithColumns createTableDefinition' columns <- resolveTableDefinition fqtn createTableDefinition
+    WithColumns createTableDefinition' columns <- resolveTableDefinition createTableName' createTableDefinition
     bindColumns columns $ do
         createTableExtra' <- traverse (resolveCreateTableExtra (Proxy :: Proxy d)) createTableExtra
         pure $ CreateTable
@@ -544,7 +544,7 @@ resolveCreateView
     :: (Members (ResolverEff a) r)
     => CreateView RawNames a -> Sem r (CreateView ResolvedNames a)
 resolveCreateView CreateView{..} = do
-    createViewName' <- resolveCreateTableName createViewName createViewIfNotExists
+    createViewName' <- catalogResolveCreateTableName createViewName
     createViewQuery' <- resolveQuery createViewQuery
     pure $ CreateView
         { createViewName = createViewName'
@@ -719,16 +719,6 @@ resolveTableName
     => OQTableName a -> Sem r (RTableName a)
 resolveTableName table = do
     catalogResolveTableName table
-
-resolveCreateTableName 
-    :: (Members (ResolverEff a) r)
-    => CreateTableName RawNames a -> Maybe a -> Sem r (CreateTableName ResolvedNames a)
-resolveCreateTableName tableName ifNotExists = do
-    tableName'@(RCreateTableName fqtn existence) <- catalogResolveCreateTableName tableName
-
-    when ((existence, void ifNotExists) == (Exists, Nothing)) $ tell [ Left $ UnexpectedTable fqtn ]
-
-    pure $ tableName'
 
 resolveDropTableName 
     :: (Members (ResolverEff a) r)

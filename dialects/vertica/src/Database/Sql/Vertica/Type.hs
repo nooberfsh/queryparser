@@ -540,9 +540,8 @@ instance HasSchemaChange (MultipleRename ResolvedNames a) where
     getSchemaChange (MultipleRename _ renames) = renames >>= getSchemaChange
 
 instance HasSchemaChange (SetSchema ResolvedNames a) where
-    getSchemaChange (SetSchema _ (RTableName fqtn table) schemaName) =
+    getSchemaChange (SetSchema _ (RTableName fqtn _) _) =
         [ Schema.DropTable $ void fqtn
-        , Schema.CreateTable (void fqtn { tableNameSchema = pure schemaName }) table
         ]
 
 

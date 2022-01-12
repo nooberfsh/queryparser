@@ -141,6 +141,7 @@ runInMemoryCatalog = reinterpret $ \case
             NormalSchema -> pure $ catalogResolveSchemaNameHelper oqsn currentDb
             SessionSchema -> error "can't create the session schema"
 
+
     CatalogResolveCreateTableName name -> do
         InMemoryCatalog {..} <- get
         ~oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schemaName schemaType)) tableName) <-
@@ -149,22 +150,9 @@ runInMemoryCatalog = reinterpret $ \case
                     QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName -> pure $ QTableName tInfo (pure $ inCurrentDb oqsn currentDb) tableName
                     _ -> pure name
 
-        let missingD = Left $ MissingDatabase db
-            missingS = Left $ MissingSchema oqsn
-        existence <- case HMS.lookup (void db) catalog of
-            Nothing -> tell [missingD, missingS] >> pure DoesNotExist
-            Just database -> case HMS.lookup (QSchemaName () None schemaName schemaType) database of
-                Nothing -> tell [missingS] >> pure DoesNotExist
-                Just schema -> if HMS.member (QTableName () None tableName) schema
-                     then pure Exists
-                     else pure DoesNotExist
-
         let fqsn = QSchemaName sInfo (pure db) schemaName schemaType
-            rctn = RCreateTableName (QTableName tInfo (pure fqsn) tableName) existence
-        tell [Right $ CreateTableNameResolved oqtn rctn]
-
-        pure rctn
-
+            fqtn = QTableName tInfo (pure fqsn) tableName 
+        pure fqtn
 
     CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schema schemaType)) table)) column) -> do
         case filter (maybe False (liftA3 and3 (resolvedTableHasDatabase db) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
@@ -433,29 +421,18 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
             NormalSchema -> pure $ catalogResolveSchemaNameHelper oqsn currentDb
             SessionSchema -> error "can't create the session schema"
 
+
     CatalogResolveCreateTableName name -> do
         InMemoryCatalog {..} <- get
         ~oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schemaName schemaType)) tableName) <-
                 case name of
                     oqtn@(QTableName _ Nothing _) -> pure $ inHeadOfPath oqtn path currentDb
-                    (QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName) -> pure $ QTableName tInfo (pure $ inCurrentDb oqsn currentDb) tableName
+                    QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName -> pure $ QTableName tInfo (pure $ inCurrentDb oqsn currentDb) tableName
                     _ -> pure name
 
-        let missingD = Left $ MissingDatabase db
-            missingS = Left $ MissingSchema oqsn
-        existence <- case HMS.lookup (void db) catalog of
-            Nothing -> tell [missingD, missingS] >> pure DoesNotExist
-            Just database -> case HMS.lookup (QSchemaName () None schemaName schemaType) database of
-                Nothing -> tell [missingS] >> pure DoesNotExist
-                Just schema -> if HMS.member (QTableName () None tableName) schema
-                     then pure Exists
-                     else pure DoesNotExist
-
         let fqsn = QSchemaName sInfo (pure db) schemaName schemaType
-            rctn = RCreateTableName (QTableName tInfo (pure fqsn) tableName) existence
-        tell [Right $ CreateTableNameResolved oqtn rctn]
-
-        pure rctn
+            fqtn = QTableName tInfo (pure fqsn) tableName 
+        pure fqtn
 
 
     CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schema schemaType)) table)) column) -> do
