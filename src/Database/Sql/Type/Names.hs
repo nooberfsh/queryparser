@@ -63,7 +63,6 @@ type ConstrainSNames (c :: * -> Constraint) r a =
     , c (CreateTableName r a)
     , c (DropTableName r a)
     , c (SchemaName r a)
-    , c (CreateSchemaName r a)
     , c (ColumnRef r a)
     , c (NaturalColumns r a)
     , c (UsingColumn r a)
@@ -78,7 +77,6 @@ type ConstrainSASNames (c :: (* -> *) -> Constraint) r =
     , c (CreateTableName r)
     , c (DropTableName r)
     , c (SchemaName r)
-    , c (CreateSchemaName r)
     , c (ColumnRef r)
     , c (NaturalColumns r)
     , c (UsingColumn r)
@@ -107,11 +105,6 @@ class Resolution r where
 
     -- | SchemaName refers to a schema in the catalog
     type SchemaName r :: * -> *
-
-    -- | CreateSchemaName refers to a table that might be in the catalog
-    --
-    -- Used for CREATE SCHEMA, special rules for resolution
-    type CreateSchemaName r :: * -> *
 
     -- | ColumnRef refers to either a column in the catalog, or an alias
     type ColumnRef r :: * -> *

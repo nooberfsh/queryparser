@@ -20,8 +20,6 @@
 
 module Database.Sql.Util.Schema where
 
-import qualified Data.HashMap.Strict as HMS
-
 import Data.List.NonEmpty (NonEmpty (..))
 
 import Data.Maybe (mapMaybe)
@@ -46,7 +44,6 @@ data SchemaChange
     | DropTable (FQTableName ())
     | CreateView (FQTableName ()) SchemaMember
     | DropView (FQTableName ())
-    | CreateSchema (FQSchemaName ()) SchemaMap
     | DropSchema (FQSchemaName ())
     | CreateDatabase (DatabaseName ()) DatabaseMap
 
@@ -118,8 +115,7 @@ instance HasSchemaChange (AST.Statement d AST.ResolvedNames a) where
          in [CreateView (void viewName) SchemaMember{..}]
     getSchemaChange (AST.DropViewStmt AST.DropView{dropViewName = AST.RDropExistingTableName fqvn _}) = [DropView $ void fqvn]
     getSchemaChange (AST.DropViewStmt AST.DropView{dropViewName = AST.RDropMissingTableName _}) = []
-    getSchemaChange (AST.CreateSchemaStmt (AST.CreateSchema{createSchemaName = AST.RCreateSchemaName _ AST.Exists, createSchemaIfNotExists = Just _})) = []
-    getSchemaChange (AST.CreateSchemaStmt (AST.CreateSchema{createSchemaName = AST.RCreateSchemaName schemaName _})) = [CreateSchema (void schemaName) HMS.empty]
+    getSchemaChange (AST.CreateSchemaStmt _) = []
     getSchemaChange (AST.GrantStmt _) = []
     getSchemaChange (AST.RevokeStmt _) = []
     getSchemaChange (AST.BeginStmt _) = []

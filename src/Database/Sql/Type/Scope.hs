@@ -134,7 +134,6 @@ instance Resolution RawNames where
     type CreateTableName RawNames = OQTableName
     type DropTableName RawNames = OQTableName
     type SchemaName RawNames = OQSchemaName
-    type CreateSchemaName RawNames = OQSchemaName
     type ColumnRef RawNames = OQColumnName
     type NaturalColumns RawNames = Unused
     type UsingColumn RawNames = UQColumnName
@@ -156,7 +155,6 @@ instance Resolution ResolvedNames where
     type CreateTableName ResolvedNames = RCreateTableName
     type DropTableName ResolvedNames = RDropTableName
     type SchemaName ResolvedNames = FQSchemaName
-    type CreateSchemaName ResolvedNames = RCreateSchemaName
     type ColumnRef ResolvedNames = RColumnRef
     type NaturalColumns ResolvedNames = RNaturalColumns
     type UsingColumn ResolvedNames = RUsingColumn
@@ -214,7 +212,7 @@ data Catalog i m a where
     CatalogHasSchema :: UQSchemaName () -> Catalog i m Existence
     CatalogHasTable :: UQTableName () -> Catalog i m Existence  -- | nb DoesNotExist does not imply that we can't resolve to this name (defaulting)
     CatalogResolveTableRef :: OQTableName i -> Catalog i m (WithColumns RTableRef i)
-    CatalogResolveCreateSchemaName :: OQSchemaName i -> Catalog i m (RCreateSchemaName i)
+    CatalogResolveCreateSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
     CatalogResolveCreateTableName :: OQTableName i -> Catalog i m (RCreateTableName i)
     CatalogResolveColumnName :: [(Maybe (RTableRef i), [RColumnRef i])] -> OQColumnName i -> Catalog i m (RColumnRef i)
 
@@ -244,7 +242,6 @@ data ResolutionSuccess a
     = TableNameResolved (OQTableName a) (RTableName a)
     | TableNameDefaulted (OQTableName a) (RTableName a)
     | CreateTableNameResolved (OQTableName a) (RCreateTableName a)
-    | CreateSchemaNameResolved (OQSchemaName a) (RCreateSchemaName a)
     | TableRefResolved (OQTableName a) (RTableRef a)
     | TableRefDefaulted (OQTableName a) (RTableRef a)
     | ColumnRefResolved (OQColumnName a) (RColumnRef a)
@@ -255,7 +252,6 @@ isGuess :: ResolutionSuccess a -> Bool
 isGuess (TableNameResolved _ _) = False
 isGuess (TableNameDefaulted _ _) = True
 isGuess (CreateTableNameResolved _ _) = False
-isGuess (CreateSchemaNameResolved _ _) = False
 isGuess (TableRefResolved _ _) = False
 isGuess (TableRefDefaulted _ _) = True
 isGuess (ColumnRefResolved _ _) = False
@@ -311,10 +307,6 @@ data RDropTableName a
 
 data RCreateTableName a = RCreateTableName (FQTableName a) Existence
                           deriving (Generic, Data, Eq, Ord, Show, Functor, Foldable, Traversable)
-
-data RCreateSchemaName a = RCreateSchemaName (FQSchemaName a) Existence
-                           deriving (Generic, Data, Eq, Ord, Show, Functor, Foldable, Traversable)
-
 
 instance Arbitrary SchemaMember where
     arbitrary = do
@@ -372,13 +364,6 @@ instance ToJSON a => ToJSON (RCreateTableName a) where
     toJSON (RCreateTableName fqtn existence) = object
         [ "tag" .= String "RCreateTableName"
         , "fqtn" .= fqtn
-        , "existence" .= existence
-        ]
-
-instance ToJSON a => ToJSON (RCreateSchemaName a) where
-    toJSON (RCreateSchemaName fqsn existence) = object
-        [ "tag" .= String "RCreateSchemaName"
-        , "fqsn" .= fqsn
         , "existence" .= existence
         ]
 

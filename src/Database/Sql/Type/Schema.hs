@@ -137,18 +137,9 @@ runInMemoryCatalog = reinterpret $ \case
 
     CatalogResolveCreateSchemaName oqsn -> do
         InMemoryCatalog {..} <- get
-        fqsn@(QSchemaName _ (Identity db) schemaName schemaType) <- case schemaNameType oqsn of
+        case schemaNameType oqsn of
             NormalSchema -> pure $ catalogResolveSchemaNameHelper oqsn currentDb
             SessionSchema -> error "can't create the session schema"
-        existence <- case HMS.lookup (void db) catalog of
-            Nothing -> tell [Left $ MissingDatabase db] >> pure DoesNotExist
-            Just database -> if HMS.member (QSchemaName () None schemaName schemaType) database
-                then pure Exists
-                else pure DoesNotExist
-        let rcsn = RCreateSchemaName fqsn existence
-        tell [Right $ CreateSchemaNameResolved oqsn rcsn]
-        pure rcsn
-
 
     CatalogResolveCreateTableName name -> do
         InMemoryCatalog {..} <- get
@@ -422,18 +413,9 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
 
     CatalogResolveCreateSchemaName oqsn -> do
         InMemoryCatalog {..} <- get
-        fqsn@(QSchemaName _ (Identity db) schemaName schemaType) <- case schemaNameType oqsn of
+        case schemaNameType oqsn of
             NormalSchema -> pure $ catalogResolveSchemaNameHelper oqsn currentDb
             SessionSchema -> error "can't create the session schema"
-        existence <- case HMS.lookup (void db) catalog of
-            Nothing -> tell [Left $ MissingDatabase db] >> pure DoesNotExist
-            Just database -> if HMS.member (QSchemaName () None schemaName schemaType) database
-                then pure Exists
-                else pure DoesNotExist
-        let rcsn = RCreateSchemaName fqsn existence
-        tell [Right $ CreateSchemaNameResolved oqsn rcsn]
-        pure rcsn
-
 
     CatalogResolveCreateTableName name -> do
         InMemoryCatalog {..} <- get

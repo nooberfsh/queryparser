@@ -34,7 +34,7 @@ module Database.Sql.Util.Scope
     , resolveColumnDefinition, resolveAlterTable, resolveDropTable
     , resolveSelectColumns, resolvedTableHasName, resolvedTableHasSchema
     , resolveSelection, resolveExpr, resolveTableName, resolveDropTableName
-    , resolveCreateSchemaName, resolveSchemaName
+    , resolveSchemaName
     , resolveTableRef, resolveColumnName, resolvePartition, resolveSelectFrom
     , resolveTablish, resolveJoinCondition, resolveSelectWhere, resolveSelectTimeseries
     , resolveSelectGroup, resolveSelectHaving, resolveOrder
@@ -568,7 +568,7 @@ resolveCreateSchema
     :: (Members (ResolverEff a) r)
     => CreateSchema RawNames a -> Sem r (CreateSchema ResolvedNames a)
 resolveCreateSchema CreateSchema{..} = do
-    createSchemaName' <- resolveCreateSchemaName createSchemaName createSchemaIfNotExists
+    createSchemaName' <- catalogResolveCreateSchemaName createSchemaName
     pure $ CreateSchema
         { createSchemaName = createSchemaName'
         , ..
@@ -741,15 +741,6 @@ resolveDropTableName tableName = do
         => ResolutionError a -> Sem r (DropTableName ResolvedNames a)
     handleMissing (MissingTable name) = pure $ RDropMissingTableName name
     handleMissing e = throw e
-
-
-resolveCreateSchemaName 
-    :: (Members (ResolverEff a) r)
-    => CreateSchemaName RawNames a -> Maybe a -> Sem r (CreateSchemaName ResolvedNames a)
-resolveCreateSchemaName schemaName ifNotExists = do
-    schemaName'@(RCreateSchemaName fqsn existence) <- catalogResolveCreateSchemaName schemaName
-    when ((existence, void ifNotExists) == (Exists, Nothing)) $ tell [ Left $ UnexpectedSchema fqsn ]
-    pure schemaName'
 
 resolveSchemaName 
     :: (Members (ResolverEff a) r)

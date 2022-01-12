@@ -294,7 +294,7 @@ deriving instance ConstrainSASNames Traversable r => Traversable (DropView r)
 data CreateSchema r a = CreateSchema
     { createSchemaInfo :: a
     , createSchemaIfNotExists :: Maybe a
-    , createSchemaName :: CreateSchemaName r a
+    , createSchemaName :: SchemaName r a
     }
 
 deriving instance (ConstrainSNames Data r a, Data r) => Data (CreateSchema r a)
@@ -541,7 +541,7 @@ instance ConstrainSNames ToJSON r a => ToJSON (DropView r a) where
         ]
 
 
-instance (ToJSON a, ToJSON (CreateSchemaName r a)) => ToJSON (CreateSchema r a) where
+instance (ToJSON a, ToJSON (SchemaName r a)) => ToJSON (CreateSchema r a) where
     toJSON (CreateSchema {..}) = JSON.object
         [ "tag" .= JSON.String "CreateSchema"
         , "info" .= createSchemaInfo
