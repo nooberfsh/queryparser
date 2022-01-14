@@ -144,7 +144,7 @@ runInMemoryCatalog = reinterpret $ \case
 
     CatalogResolveCreateTableName name -> do
         InMemoryCatalog {..} <- get
-        ~oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schemaName schemaType)) tableName) <-
+        ~(QTableName tInfo (Just (QSchemaName sInfo (Just db) schemaName schemaType)) tableName) <-
                 case name of
                     oqtn@(QTableName _ Nothing _) -> pure $ inHeadOfPath oqtn path currentDb
                     QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName -> pure $ QTableName tInfo (pure $ inCurrentDb oqsn currentDb) tableName
@@ -247,6 +247,23 @@ runInMemoryCatalog = reinterpret $ \case
                         newCatalog = HMS.insert (void db) newDb catalog
                     put InMemoryCatalog {catalog = newCatalog, ..}
                     pure ()
+
+    CatalogResolveCreateTable (RTableName fqtn@(QTableName _ (Identity fqsn@(QSchemaName _ (Identity dbName) _ _)) _) schemaMember) createIfNotExists -> do
+        InMemoryCatalog {..} <- get
+        let uqtn = void $ fqtnToUqtn fqtn
+            uqsn = void $ fqsnToUqsn fqsn
+        db <- getDatabase dbName catalog
+        schema <- getSchema (fqsnToOqsn fqsn) currentDb catalog
+        if HMS.member uqtn schema then
+            if createIfNotExists then pure () else throw $ UnexpectedTable fqtn
+        else do
+            let 
+                newSchema = HMS.insert uqtn schemaMember schema
+                newDb = HMS.insert uqsn newSchema db
+                newCatalog = HMS.insert (void dbName) newDb catalog
+            put InMemoryCatalog {catalog = newCatalog, ..}
+            pure ()
+        
 
   where
     catalogResolveTableNameHelper 
@@ -424,7 +441,7 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
 
     CatalogResolveCreateTableName name -> do
         InMemoryCatalog {..} <- get
-        ~oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schemaName schemaType)) tableName) <-
+        ~(QTableName tInfo (Just (QSchemaName sInfo (Just db) schemaName schemaType)) tableName) <-
                 case name of
                     oqtn@(QTableName _ Nothing _) -> pure $ inHeadOfPath oqtn path currentDb
                     QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName -> pure $ QTableName tInfo (pure $ inCurrentDb oqsn currentDb) tableName
@@ -558,6 +575,27 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
                     put InMemoryCatalog {catalog = newCatalog, ..}
                     pure ()
 
+    CatalogResolveCreateTable (RTableName fqtn@(QTableName _ (Identity fqsn@(QSchemaName _ (Identity dbName) _ _)) _) schemaMember) createIfNotExists -> do
+        InMemoryCatalog {..} <- get
+        let uqtn = void $ fqtnToUqtn fqtn
+            uqsn = void $ fqsnToUqsn fqsn
+        case HMS.lookup (void dbName) catalog of
+            Nothing -> tell [Left $ MissingDatabase dbName]
+            Just database -> 
+                case HMS.lookup uqsn database of
+                    Nothing -> tell [Left $ MissingSchema (fqsnToOqsn fqsn)]
+                    Just schema ->
+                        if HMS.member uqtn schema then
+                            if createIfNotExists then pure () else tell [Left $ UnexpectedTable fqtn]
+                        else do
+                            let 
+                                newSchema = HMS.insert uqtn schemaMember schema
+                                newDb = HMS.insert uqsn newSchema database
+                                newCatalog = HMS.insert (void dbName) newDb catalog
+                            put InMemoryCatalog {catalog = newCatalog, ..}
+                            pure ()
+                            
+
   where
     catalogResolveTableNameHelper 
         :: (Members (CatalogEff a) r)
@@ -618,3 +656,24 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
 
     catalogResolveSchemaNameHelper (QSchemaName sInfo (Just db) schemaName schemaType) _ = QSchemaName sInfo (pure db) schemaName schemaType
     catalogResolveSchemaNameHelper oqsn@(QSchemaName _ Nothing _ _) currentDb = inCurrentDb oqsn currentDb
+
+
+getDatabase :: Members (CatalogEff a) r => DatabaseName a -> CatalogMap -> Sem r DatabaseMap
+getDatabase name catalog = do
+    case HMS.lookup (void name) catalog of
+        Nothing -> throw $ MissingDatabase name
+        Just database -> pure database
+
+getSchema :: Members (CatalogEff a) r => OQSchemaName a -> CurrentDatabase -> CatalogMap -> Sem r SchemaMap
+getSchema oqsn@QSchemaName {schemaNameDatabase = Just dbName, ..} _ catalog = do
+    db <- getDatabase dbName catalog
+    let uqsn = QSchemaName {schemaNameInfo = (), schemaNameDatabase = None, ..}
+    case HMS.lookup uqsn db of
+        Nothing -> throw $ MissingSchema oqsn
+        Just schema -> pure schema
+
+getSchema QSchemaName {schemaNameDatabase = Nothing, ..} dbName catalog = do
+    let dbName' = fmap (const schemaNameInfo ) dbName
+    let uqsn = QSchemaName {schemaNameDatabase = Just dbName', ..}
+    getSchema uqsn dbName catalog
+

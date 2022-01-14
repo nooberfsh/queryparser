@@ -427,7 +427,10 @@ resolveCreateTable
 resolveCreateTable CreateTable{..} = do
     createTableName' <- catalogResolveCreateTableName createTableName 
 
-    WithColumns createTableDefinition' columns <- resolveTableDefinition createTableName' createTableDefinition
+    (WithColumns createTableDefinition' columns, schema) <- resolveTableDefinition createTableName' createTableDefinition
+    let rTable = RTableName createTableName' schema
+    catalogResolveCreateTable rTable $ isJust createTableIfNotExists
+
     bindColumns columns $ do
         createTableExtra' <- traverse (resolveCreateTableExtra (Proxy :: Proxy d)) createTableExtra
         pure $ CreateTable
@@ -436,7 +439,6 @@ resolveCreateTable CreateTable{..} = do
             , createTableExtra = createTableExtra'
             , ..
             }
-
 
 
 mkTableSchemaMember :: [UQColumnName ()] -> SchemaMember
@@ -448,12 +450,12 @@ mkTableSchemaMember columnsList = SchemaMember{..}
 
 resolveTableDefinition 
     :: (Members (ResolverEff a) r)
-    => FQTableName a -> TableDefinition d RawNames a -> Sem r (WithColumns (TableDefinition d ResolvedNames) a)
+    => FQTableName a -> TableDefinition d RawNames a -> Sem r (WithColumns (TableDefinition d ResolvedNames) a, SchemaMember)
 resolveTableDefinition fqtn (TableColumns info cs) = do
     cs' <- mapM resolveColumnOrConstraint cs
     let columns = mapMaybe columnOrConstraintToColumn $ NonEmpty.toList cs'
         table = mkTableSchemaMember $ map (\ c -> c{columnNameInfo = (), columnNameTable = None}) columns
-    pure $ WithColumns (TableColumns info cs') [(Just $ RTableRef fqtn table, map RColumnRef columns)]
+    pure (WithColumns (TableColumns info cs') [(Just $ RTableRef fqtn table, map RColumnRef columns)], table)
   where
     columnOrConstraintToColumn (ColumnOrConstraintConstraint _) = Nothing
     columnOrConstraintToColumn (ColumnOrConstraintColumn ColumnDefinition{columnDefinitionName = QColumnName columnInfo None name}) =
@@ -461,8 +463,8 @@ resolveTableDefinition fqtn (TableColumns info cs) = do
 
 
 resolveTableDefinition _ (TableLike info name) = do
-    name' <- resolveTableName name
-    pure $ WithColumns (TableLike info name') []
+    name'@(RTableName _ schema) <- resolveTableName name
+    pure (WithColumns (TableLike info name') [], schema)
 
 resolveTableDefinition fqtn (TableAs info cols query) = do
     query' <- resolveQuery query
@@ -474,10 +476,10 @@ resolveTableDefinition fqtn (TableAs info cols query) = do
             columnNameInfo = ()
             columnNameName = cn
             columnNameTable = None
-    pure $ WithColumns (TableAs info cols query') [(Just $ RTableRef fqtn table, columns)]
+    pure (WithColumns (TableAs info cols query') [(Just $ RTableRef fqtn table, columns)], table)
 
 resolveTableDefinition _ (TableNoColumnInfo info) = do
-    pure $ WithColumns (TableNoColumnInfo info) []
+    pure (WithColumns (TableNoColumnInfo info) [], mkTableSchemaMember [])
 
 resolveColumnOrConstraint 
     :: (Members (ResolverEff a) r)

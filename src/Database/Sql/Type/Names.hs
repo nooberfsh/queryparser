@@ -171,6 +171,12 @@ type UQSchemaName = QSchemaName No
 type OQSchemaName = QSchemaName Maybe
 type FQSchemaName = QSchemaName Identity
 
+fqsnToOqsn :: FQSchemaName a -> OQSchemaName a
+fqsnToOqsn QSchemaName {schemaNameDatabase = Identity db, ..} = QSchemaName {schemaNameDatabase = Just db, ..}
+
+fqsnToUqsn :: FQSchemaName a -> UQSchemaName a
+fqsnToUqsn QSchemaName {..} = QSchemaName {schemaNameDatabase = None, ..}
+
 mkNormalSchema :: Alternative f => Text -> a -> QSchemaName f a
 mkNormalSchema name info = QSchemaName info empty name NormalSchema
 
@@ -285,6 +291,12 @@ instance Alternative No where
 type UQTableName = QTableName No
 type OQTableName = QTableName Maybe
 type FQTableName = QTableName Identity
+
+fqtnToOqtn :: FQTableName a -> OQTableName a
+fqtnToOqtn QTableName {tableNameSchema = Identity fqsn, ..} = QTableName {tableNameSchema = Just $ fqsnToOqsn fqsn, ..}
+
+fqtnToUqtn :: FQTableName a -> UQTableName a
+fqtnToUqtn QTableName {..} = QTableName {tableNameSchema = None, ..}
 
 newtype TableAliasId
     = TableAliasId Integer

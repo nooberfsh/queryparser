@@ -215,8 +215,9 @@ data Catalog i m a where
     CatalogResolveCreateSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
     CatalogResolveCreateTableName :: OQTableName i -> Catalog i m (FQTableName i)
     CatalogResolveColumnName :: [(Maybe (RTableRef i), [RColumnRef i])] -> OQColumnName i -> Catalog i m (RColumnRef i)
-    -- | apply schema changes
+    -- | apply schema changes TODO: add tests
     CatalogResolveCreateSchema :: FQSchemaName i -> Bool -> Catalog i m ()
+    CatalogResolveCreateTable :: RTableName i -> Bool -> Catalog i m ()
 
 type CatalogEff a = 
     [ PE.Error (ResolutionError a) -- error
