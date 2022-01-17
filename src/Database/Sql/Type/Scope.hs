@@ -218,6 +218,7 @@ data Catalog i m a where
     -- | apply schema changes TODO: add tests
     CatalogResolveCreateSchema :: FQSchemaName i -> Bool -> Catalog i m ()
     CatalogResolveCreateTable :: RTableName i -> Bool -> Catalog i m ()
+    CatalogResolveDropTable :: OQTableName i -> Bool -> Catalog i m (RDropTableName i)
 
 type CatalogEff a = 
     [ PE.Error (ResolutionError a) -- error

@@ -535,7 +535,7 @@ resolveDropTable
     :: (Members (ResolverEff a) r)
     => DropTable RawNames a -> Sem r (DropTable ResolvedNames a)
 resolveDropTable DropTable{..} = do
-    dropTableNames' <- mapM resolveDropTableName dropTableNames
+    dropTableNames' <- mapM (`resolveDropTableName` dropTableIfExists) dropTableNames
     pure $ DropTable
         { dropTableNames = dropTableNames'
         , ..
@@ -559,7 +559,7 @@ resolveDropView
     :: (Members (ResolverEff a) r)
     => DropView RawNames a -> Sem r (DropView ResolvedNames a)
 resolveDropView DropView{..} = do
-    dropViewName' <- resolveDropTableName dropViewName
+    dropViewName' <- resolveDropTableName dropViewName dropViewIfExists
     pure $ DropView
         { dropViewName = dropViewName'
         , ..
@@ -724,17 +724,9 @@ resolveTableName table = do
 
 resolveDropTableName 
     :: (Members (ResolverEff a) r)
-    => DropTableName RawNames a -> Sem r (DropTableName ResolvedNames a)
-resolveDropTableName tableName = do
-    (getName <$> resolveTableName tableName)
-        `catch` handleMissing
-  where
-    getName (RTableName name table) = RDropExistingTableName name table
-    handleMissing 
-        :: (Member (Error (ResolutionError a)) r) 
-        => ResolutionError a -> Sem r (DropTableName ResolvedNames a)
-    handleMissing (MissingTable name) = pure $ RDropMissingTableName name
-    handleMissing e = throw e
+    => DropTableName RawNames a -> Maybe a -> Sem r (DropTableName ResolvedNames a)
+resolveDropTableName tableName ifExists = do
+    catalogResolveDropTable tableName (isJust ifExists)
 
 resolveSchemaName 
     :: (Members (ResolverEff a) r)

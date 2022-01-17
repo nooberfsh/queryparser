@@ -263,7 +263,28 @@ runInMemoryCatalog = reinterpret $ \case
                 newCatalog = HMS.insert (void dbName) newDb catalog
             put InMemoryCatalog {catalog = newCatalog, ..}
             pure ()
-        
+
+    CatalogResolveDropTable oqtn@(QTableName _ (Just (QSchemaName _ (Just (DatabaseName _ _)) _ _)) _) ifExists ->
+        catalogResolveDropTableHelper oqtn ifExists
+
+    CatalogResolveDropTable (QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName) ifExists -> do
+        InMemoryCatalog {..} <- get
+        catalogResolveDropTableHelper (QTableName tInfo (Just $ inCurrentDb oqsn currentDb) tableName) ifExists
+
+    CatalogResolveDropTable oqtn@(QTableName tInfo Nothing tableName) ifExists -> do
+        InMemoryCatalog {..} <- get
+        let getTableFromSchema uqsn@(QSchemaName _ None schemaName schemaType) = do
+                db <- HMS.lookup currentDb catalog
+                schema <- HMS.lookup uqsn db
+                table <- HMS.lookup (QTableName () None tableName) schema
+                let db' = fmap (const tInfo) currentDb
+                    fqsn = QSchemaName tInfo (pure db') schemaName schemaType
+                    fqtn = QTableName tInfo (pure fqsn) tableName
+                pure $ RTableName fqtn table
+
+        case mapMaybe getTableFromSchema path of
+            (RTableName fqtn _):_ -> catalogResolveDropTableHelper (fqtnToOqtn fqtn) ifExists
+            [] -> if ifExists then pure $ RDropMissingTableName oqtn else throw $ MissingTable oqtn
 
   where
     catalogResolveTableNameHelper 
@@ -292,6 +313,34 @@ runInMemoryCatalog = reinterpret $ \case
                                 pure rtn
 
     catalogResolveTableNameHelper _ = error "only call catalogResolveTableNameHelper with fully qualified table name"
+
+    catalogResolveDropTableHelper 
+        :: (Members (CatalogEff a) r)
+        => OQTableName a -> Bool -> Sem (State InMemoryCatalog : r) (RDropTableName a)
+    catalogResolveDropTableHelper oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db@(DatabaseName _ _)) schemaName schemaType)) tableName) ifExists = do
+        InMemoryCatalog {..} <- get
+        let missingTbl = RDropMissingTableName oqtn
+            fqsn = QSchemaName sInfo (pure db) schemaName schemaType
+            uqsn = void $ fqsnToUqsn fqsn
+            fqtn = QTableName tInfo (pure fqsn) tableName
+            uqtn = void $ fqtnToUqtn fqtn
+        case HMS.lookup (void db) catalog of
+            Nothing -> if ifExists then pure missingTbl else throw $ MissingDatabase db
+            Just database ->
+                case HMS.lookup (QSchemaName () None schemaName schemaType) database of
+                    Nothing -> if ifExists then pure missingTbl else throw $ MissingSchema oqsn
+                    Just schema -> do
+                        case HMS.lookup (QTableName () None tableName) schema of
+                            Nothing -> if ifExists then pure missingTbl else throw $ MissingTable oqtn
+                            Just table -> do
+                                let 
+                                    newSchema = HMS.delete uqtn schema
+                                    newDb = HMS.insert uqsn newSchema database
+                                    newCatalog = HMS.insert (void db) newDb catalog
+                                put InMemoryCatalog {catalog = newCatalog, ..}
+                                pure $ RDropExistingTableName fqtn table
+
+    catalogResolveDropTableHelper _ _ = error "only call catalogResolveDropTableHelper with fully qualified table name"
 
 
     catalogResolveTableRefHelper 
@@ -594,7 +643,33 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
                                 newCatalog = HMS.insert (void dbName) newDb catalog
                             put InMemoryCatalog {catalog = newCatalog, ..}
                             pure ()
-                            
+
+    CatalogResolveDropTable oqtn@(QTableName _ (Just (QSchemaName _ (Just (DatabaseName _ _)) _ _)) _) ifExists ->
+        catalogResolveDropTableHelper oqtn ifExists
+
+    CatalogResolveDropTable (QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName) ifExists -> do
+        InMemoryCatalog {..} <- get
+        catalogResolveDropTableHelper (QTableName tInfo (Just $ inCurrentDb oqsn currentDb) tableName) ifExists
+
+    CatalogResolveDropTable oqtn@(QTableName tInfo Nothing tableName) ifExists -> do
+        InMemoryCatalog {..} <- get
+        let getTableFromSchema uqsn@(QSchemaName _ None schemaName schemaType) = do
+                db <- HMS.lookup currentDb catalog
+                schema <- HMS.lookup uqsn db
+                table <- HMS.lookup (QTableName () None tableName) schema
+                let db' = fmap (const tInfo) currentDb
+                    fqsn = QSchemaName tInfo (pure db') schemaName schemaType
+                    fqtn = QTableName tInfo (pure fqsn) tableName
+                pure $ RTableName fqtn table
+
+        case mapMaybe getTableFromSchema path of
+            (RTableName fqtn _):_ -> catalogResolveDropTableHelper (fqtnToOqtn fqtn) ifExists
+            [] -> 
+                if ifExists then pure $ RDropMissingTableName oqtn 
+                else do 
+                    tell [Left $ MissingTable oqtn]
+                    pure $ RDropMissingTableName oqtn
+                
 
   where
     catalogResolveTableNameHelper 
@@ -624,6 +699,33 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
 
     catalogResolveTableNameHelper _ = error "only call catalogResolveTableNameHelper with fully qualified table name"
 
+    catalogResolveDropTableHelper 
+        :: (Members (CatalogEff a) r)
+        => OQTableName a -> Bool -> Sem (State InMemoryCatalog : r) (RDropTableName a)
+    catalogResolveDropTableHelper oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db@(DatabaseName _ _)) schemaName schemaType)) tableName) ifExists = do
+        InMemoryCatalog {..} <- get
+        let missingTbl = RDropMissingTableName oqtn
+            fqsn = QSchemaName sInfo (pure db) schemaName schemaType
+            uqsn = void $ fqsnToUqsn fqsn
+            fqtn = QTableName tInfo (pure fqsn) tableName
+            uqtn = void $ fqtnToUqtn fqtn
+        case HMS.lookup (void db) catalog of
+            Nothing -> if ifExists then pure missingTbl else tell [Left $ MissingDatabase db] >> pure missingTbl
+            Just database ->
+                case HMS.lookup (QSchemaName () None schemaName schemaType) database of
+                    Nothing -> if ifExists then pure missingTbl else tell [Left $ MissingSchema oqsn] >> pure missingTbl
+                    Just schema -> do
+                        case HMS.lookup (QTableName () None tableName) schema of
+                            Nothing -> if ifExists then pure missingTbl else tell [Left $ MissingTable oqtn] >> pure missingTbl
+                            Just table -> do
+                                let 
+                                    newSchema = HMS.delete uqtn schema
+                                    newDb = HMS.insert uqsn newSchema database
+                                    newCatalog = HMS.insert (void db) newDb catalog
+                                put InMemoryCatalog {catalog = newCatalog, ..}
+                                pure $ RDropExistingTableName fqtn table
+
+    catalogResolveDropTableHelper _ _ = error "only call catalogResolveDropTableHelper with fully qualified table name"
 
     catalogResolveTableRefHelper 
         :: (Members (CatalogEff a) r)
