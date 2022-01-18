@@ -317,7 +317,7 @@ runInMemoryCatalog = reinterpret $ \case
     catalogResolveDropTableHelper 
         :: (Members (CatalogEff a) r)
         => OQTableName a -> Bool -> Sem (State InMemoryCatalog : r) (RDropTableName a)
-    catalogResolveDropTableHelper oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db@(DatabaseName _ _)) schemaName schemaType)) tableName) ifExists = do
+    catalogResolveDropTableHelper oqtn@(QTableName tInfo (Just (QSchemaName sInfo (Just db@(DatabaseName _ _)) schemaName schemaType)) tableName) ifExists = do
         InMemoryCatalog {..} <- get
         let missingTbl = RDropMissingTableName oqtn
             fqsn = QSchemaName sInfo (pure db) schemaName schemaType
@@ -325,10 +325,10 @@ runInMemoryCatalog = reinterpret $ \case
             fqtn = QTableName tInfo (pure fqsn) tableName
             uqtn = void $ fqtnToUqtn fqtn
         case HMS.lookup (void db) catalog of
-            Nothing -> if ifExists then pure missingTbl else throw $ MissingDatabase db
+            Nothing -> if ifExists then pure missingTbl else throw $ MissingTable oqtn
             Just database ->
                 case HMS.lookup (QSchemaName () None schemaName schemaType) database of
-                    Nothing -> if ifExists then pure missingTbl else throw $ MissingSchema oqsn
+                    Nothing -> if ifExists then pure missingTbl else throw $ MissingTable oqtn
                     Just schema -> do
                         case HMS.lookup (QTableName () None tableName) schema of
                             Nothing -> if ifExists then pure missingTbl else throw $ MissingTable oqtn

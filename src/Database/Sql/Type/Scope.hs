@@ -192,6 +192,7 @@ data InMemoryCatalog = InMemoryCatalog
     , path :: Path
     , currentDb :: CurrentDatabase
     }
+    deriving (Show, Eq)
 
 inCurrentDb :: Applicative g => QSchemaName f a -> CurrentDatabase -> QSchemaName g a
 inCurrentDb (QSchemaName sInfo _ schemaName schemaType) currentDb =

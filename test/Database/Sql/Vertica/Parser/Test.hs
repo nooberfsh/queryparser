@@ -290,6 +290,7 @@ testParser = test
         , "CREATE ACCESS POLICY ON foo FOR COLUMN bar CASE WHEN true THEN hmac(bar) ELSE bar END ENABLE;"
         , "CREATE ACCESS POLICY ON foo FOR COLUMN bar CASE WHEN true THEN hmac(bar) ELSE bar END DISABLE;"
         , "CREATE SCHEMA myschema;"
+        , "CREATE SCHEMA s.myschema;"
         , "CREATE SCHEMA IF NOT EXISTS myschema AUTHORIZATION foo;"
         , "ALTER TABLE foo RENAME TO bar;"
         , "ALTER TABLE foo, baz RENAME TO bar, quux;"

@@ -24,7 +24,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Database.Sql.Util.Scope
-    ( runResolverWarn, runResolverWError, runResolverNoWarn
+    ( runResolverWarn, runResolverWarnState, runResolverWError, runResolverWErrorState, runResolverNoWarn
     , makeResolverInfo
     , WithColumns (..)
     , queryColumnNames, tablishColumnNames
@@ -92,7 +92,21 @@ runResolverWarn resolver dialect (runCatalog, catalog)
     & runCatalog
     & evalState catalog
     & runError
-    & (runReader $ makeResolverInfo dialect)
+    & runReader (makeResolverInfo dialect)
+    & runWriter
+    & evalState 0
+    & fmap swap
+    & run
+
+runResolverWarnState
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> (Either (ResolutionError a) (InMemoryCatalog, s a), [Either (ResolutionError a) (ResolutionSuccess a)])
+runResolverWarnState resolver dialect (runCatalog, catalog)
+    = resolver
+    & runCatalog
+    & runState catalog
+    & runError
+    & runReader (makeResolverInfo dialect)
     & runWriter
     & evalState 0
     & fmap swap
@@ -101,7 +115,7 @@ runResolverWarn resolver dialect (runCatalog, catalog)
 
 runResolverWError 
     :: Dialect d 
-    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either [ResolutionError a] ((s a), [ResolutionSuccess a])
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either [ResolutionError a] (s a, [ResolutionSuccess a])
 runResolverWError resolver dialect interpreter =
     let (result, warningsSuccesses) = runResolverWarn resolver dialect interpreter
         warnings = lefts warningsSuccesses
@@ -111,6 +125,17 @@ runResolverWError resolver dialect interpreter =
             (Right _, ws) -> Left ws
             (Left e, ws) -> Left (e:ws)
 
+runResolverWErrorState
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either [ResolutionError a] (InMemoryCatalog, s a, [ResolutionSuccess a])
+runResolverWErrorState resolver dialect interpreter =
+    let (result, warningsSuccesses) = runResolverWarnState resolver dialect interpreter
+        warnings = lefts warningsSuccesses
+        successes = rights warningsSuccesses
+     in case (result, warnings) of
+            (Right (x, y), []) -> Right (x, y, successes)
+            (Right _, ws) -> Left ws
+            (Left e, ws) -> Left (e:ws)
 
 runResolverNoWarn 
     :: Dialect d 
