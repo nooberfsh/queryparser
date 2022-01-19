@@ -95,32 +95,6 @@ runInMemoryCatalog = reinterpret $ \case
             False -> return DoesNotExist
             True -> return Exists
 
-    CatalogResolveTableRef oqtn@(QTableName _ (Just (QSchemaName _ (Just (DatabaseName _ _)) _ _)) _) ->
-        catalogResolveTableRefHelper oqtn
-
-    CatalogResolveTableRef (QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName) -> do 
-        InMemoryCatalog {..} <- get
-        catalogResolveTableRefHelper $ QTableName tInfo (Just $ inCurrentDb oqsn currentDb) tableName
-
-    CatalogResolveTableRef oqtn@(QTableName tInfo Nothing tableName) -> do
-        InMemoryCatalog {..} <- get
-        let getTableFromSchema uqsn@(QSchemaName _ None schemaName schemaType) = do
-                db <- HMS.lookup currentDb catalog
-                schema <- HMS.lookup uqsn db
-                table@SchemaMember{..} <- HMS.lookup (QTableName () None tableName) schema
-                let db' = fmap (const tInfo) currentDb
-                    fqsn = QSchemaName tInfo (pure db') schemaName schemaType
-                    fqtn = QTableName tInfo (pure fqsn) tableName
-                    makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
-                    tableRef = RTableRef fqtn table
-                pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
-
-        case mapMaybe getTableFromSchema path of
-            table@(WithColumns tableRef _):_ -> do
-                tell [Right $ TableRefResolved oqtn tableRef]
-                pure table
-            [] -> throw $ MissingTable oqtn
-
     CatalogResolveCreateSchemaName oqsn -> do
         InMemoryCatalog {..} <- get
         case schemaNameType oqsn of
@@ -323,30 +297,6 @@ runInMemoryCatalog = reinterpret $ \case
 
     catalogResolveDropTableHelper _ _ = error "only call catalogResolveDropTableHelper with fully qualified table name"
 
-
-    catalogResolveTableRefHelper 
-        :: (Members (CatalogEff a) r)
-        => OQTableName a -> Sem (State InMemoryCatalog : r) (WithColumns RTableRef a)
-    catalogResolveTableRefHelper oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db@(DatabaseName _ _)) schemaName schemaType)) tableName) = do
-        InMemoryCatalog {..} <- get
-        let fqsn = QSchemaName sInfo (pure db) schemaName schemaType
-            fqtn = QTableName tInfo (pure fqsn) tableName
-
-        case HMS.lookup (void db) catalog of
-            Nothing -> throw $ MissingDatabase db
-            Just database -> case HMS.lookup (QSchemaName () None schemaName schemaType) database of
-                    Nothing -> throw $ MissingSchema oqsn
-                    Just tables -> do
-                        case HMS.lookup (QTableName () None tableName) tables of
-                            Nothing -> throw $ MissingTable oqtn
-                            Just table@SchemaMember{..} -> do
-                                let makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
-                                    tableRef = RTableRef fqtn table
-                                tell [Right $ TableRefResolved oqtn tableRef]
-                                pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
-
-    catalogResolveTableRefHelper _ = error "only call catalogResolveTableRefHelper with fully qualified table name"
-
     catalogResolveSchemaNameHelper (QSchemaName sInfo (Just db) schemaName schemaType) _ = QSchemaName sInfo (pure db) schemaName schemaType
     catalogResolveSchemaNameHelper oqsn@(QSchemaName _ Nothing _ _) currentDb = inCurrentDb oqsn currentDb
 
@@ -415,38 +365,6 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
          in case any id $ mapMaybe getTableFromSchema path of
             False -> return DoesNotExist
             True -> return Exists
-
-    CatalogResolveTableRef oqtn@(QTableName _ (Just (QSchemaName _ (Just (DatabaseName _ _)) _ _)) _) ->
-        catalogResolveTableRefHelper oqtn
-
-    CatalogResolveTableRef (QTableName tInfo (Just oqsn@(QSchemaName _ Nothing _ _)) tableName) -> do
-        InMemoryCatalog {..} <- get
-        catalogResolveTableRefHelper $ QTableName tInfo (Just $ inCurrentDb oqsn currentDb) tableName
-
-    CatalogResolveTableRef oqtn@(QTableName tInfo Nothing tableName) -> do
-        InMemoryCatalog {..} <- get
-        let getTableFromSchema uqsn@(QSchemaName _ None schemaName schemaType) = do
-                db <- HMS.lookup currentDb catalog
-                schema <- HMS.lookup uqsn db
-                table@SchemaMember{..} <- HMS.lookup (QTableName () None tableName) schema
-                let db' = fmap (const tInfo) currentDb
-                    fqsn = QSchemaName tInfo (pure db') schemaName schemaType
-                    fqtn = QTableName tInfo (pure fqsn) tableName
-                    makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
-                    tableRef = RTableRef fqtn table
-                pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
-
-        case mapMaybe getTableFromSchema path of
-            table@(WithColumns tableRef _):_ -> do
-                tell [Right $ TableRefResolved oqtn tableRef]
-                pure table
-            [] -> do
-                let tableRef = RTableRef (inHeadOfPath oqtn path currentDb) defaultSchemaMember
-                tell [ Left $ MissingTable oqtn
-                     , Right $ TableRefDefaulted oqtn tableRef
-                     ]
-                -- TODO: deal with columns
-                pure $ WithColumns tableRef [(Just tableRef, [])]
 
     CatalogResolveCreateSchemaName oqsn -> do
         InMemoryCatalog {..} <- get
@@ -693,35 +611,6 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
                                 pure $ RDropExistingTableName fqtn table
 
     catalogResolveDropTableHelper _ _ = error "only call catalogResolveDropTableHelper with fully qualified table name"
-
-    catalogResolveTableRefHelper 
-        :: (Members (CatalogEff a) r)
-        => OQTableName a -> Sem (State InMemoryCatalog : r) (WithColumns RTableRef a)
-    catalogResolveTableRefHelper oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db@(DatabaseName _ _)) schemaName schemaType)) tableName) = do
-        InMemoryCatalog {..} <- get
-        let fqsn = QSchemaName sInfo (pure db) schemaName schemaType
-            fqtn = QTableName tInfo (pure fqsn) tableName
-            defaultTableRef = RTableRef fqtn defaultSchemaMember
-            missingD = Left $ MissingDatabase db
-            missingS = Left $ MissingSchema oqsn
-            missingT = Left $ MissingTable oqtn
-            tableRefResolved = Right $ TableRefResolved oqtn defaultTableRef
-            default' = WithColumns defaultTableRef [(Just defaultTableRef, [])]
-
-        case HMS.lookup (void db) catalog of
-            Nothing -> tell [missingD, missingS, missingT, tableRefResolved] >> pure default'
-            Just database -> case HMS.lookup (QSchemaName () None schemaName schemaType) database of
-                Nothing -> tell [missingS, missingT, tableRefResolved] >> pure default'
-                Just schema -> do
-                    case HMS.lookup (QTableName () None tableName) schema of
-                        Nothing -> tell [missingT, tableRefResolved] >> pure default'
-                        Just table@SchemaMember{..} -> do
-                            let makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
-                                tableRef = RTableRef fqtn table
-                            tell [Right $ TableRefResolved oqtn tableRef]
-                            pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
-
-    catalogResolveTableRefHelper _ = error "only call catalogResolveTableRefHelper with fully qualified table name"
 
     catalogResolveSchemaNameHelper (QSchemaName sInfo (Just db) schemaName schemaType) _ = QSchemaName sInfo (pure db) schemaName schemaType
     catalogResolveSchemaNameHelper oqsn@(QSchemaName _ Nothing _ _) currentDb = inCurrentDb oqsn currentDb
