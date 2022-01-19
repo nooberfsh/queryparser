@@ -24,7 +24,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Database.Sql.Util.Scope
-    ( runResolverWarn, runResolverWError, runResolverNoWarn
+    ( runResolverWarn, runResolverWarnState, runResolverWError, runResolverWErrorState, runResolverNoWarn
+    , makeResolverInfo
     , WithColumns (..)
     , queryColumnNames, tablishColumnNames
     , resolveStatement, resolveQuery, resolveQueryWithColumns, resolveSelectAndOrders, resolveCTE, resolveInsert
@@ -33,16 +34,18 @@ module Database.Sql.Util.Scope
     , resolveColumnDefinition, resolveAlterTable, resolveDropTable
     , resolveSelectColumns, resolvedTableHasName, resolvedTableHasSchema
     , resolveSelection, resolveExpr, resolveTableName, resolveDropTableName
-    , resolveCreateSchemaName, resolveSchemaName
+    , resolveSchemaName
     , resolveTableRef, resolveColumnName, resolvePartition, resolveSelectFrom
     , resolveTablish, resolveJoinCondition, resolveSelectWhere, resolveSelectTimeseries
     , resolveSelectGroup, resolveSelectHaving, resolveOrder
     , selectionNames, mkTableSchemaMember
     ) where
 
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, isJust)
 import Data.Either (lefts, rights)
 import Data.List (find)
+import Data.Tuple (swap)
+import Data.Function ((&))
 import Database.Sql.Type
 
 import qualified Data.List.NonEmpty as NonEmpty
@@ -50,19 +53,20 @@ import qualified Data.Text.Lazy as TL
 import           Data.Text.Lazy (Text)
 
 import Control.Applicative (liftA2)
-import Control.Monad.State
-import Control.Monad.Reader
-import Control.Monad.Writer
-import Control.Monad.Except
 import Control.Monad.Identity
 
-import Control.Arrow (first, (&&&))
+import Control.Arrow (first)
 
 import Data.Proxy (Proxy (..))
 
+import Polysemy
+import Polysemy.State
+import Polysemy.Reader
+import Polysemy.Writer
+import Polysemy.Error
 
-makeResolverInfo :: Dialect d => Proxy d -> Catalog -> ResolverInfo a
-makeResolverInfo dialect catalog = ResolverInfo
+makeResolverInfo :: Dialect d => Proxy d -> ResolverInfo a
+makeResolverInfo dialect = ResolverInfo
     { bindings = emptyBindings
     , onCTECollision =
         if shouldCTEsShadowTables dialect
@@ -71,21 +75,49 @@ makeResolverInfo dialect catalog = ResolverInfo
     , lambdaScope = []
     , selectScope = getSelectScope dialect
     , lcolumnsAreVisibleInLateralViews = areLcolumnsVisibleInLateralViews dialect
-    , ..
     }
 
-makeColumnAlias :: a -> Text -> Resolver ColumnAlias a
+makeColumnAlias 
+    :: (Members (ResolverEff a) r)
+    => a -> Text -> Sem r (ColumnAlias a)
 makeColumnAlias r alias = ColumnAlias r alias . ColumnAliasId <$> getNextCounter
   where
-    getNextCounter = modify (subtract 1) >> get
+    getNextCounter = modify @Integer (subtract 1) >> get @Integer
 
-runResolverWarn :: Dialect d => Resolver r a -> Proxy d -> Catalog -> (Either (ResolutionError a) (r a), [Either (ResolutionError a) (ResolutionSuccess a)])
-runResolverWarn resolver dialect catalog = runWriter $ runExceptT $ runReaderT (evalStateT resolver 0) $ makeResolverInfo dialect catalog
+runResolverWarn 
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> (Either (ResolutionError a) (s a), [Either (ResolutionError a) (ResolutionSuccess a)])
+runResolverWarn resolver dialect (runCatalog, catalog)
+    = resolver
+    & runCatalog
+    & evalState catalog
+    & runError
+    & runReader (makeResolverInfo dialect)
+    & runWriter
+    & evalState 0
+    & fmap swap
+    & run
+
+runResolverWarnState
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> (Either (ResolutionError a) (InMemoryCatalog, s a), [Either (ResolutionError a) (ResolutionSuccess a)])
+runResolverWarnState resolver dialect (runCatalog, catalog)
+    = resolver
+    & runCatalog
+    & runState catalog
+    & runError
+    & runReader (makeResolverInfo dialect)
+    & runWriter
+    & evalState 0
+    & fmap swap
+    & run
 
 
-runResolverWError :: Dialect d => Resolver r a -> Proxy d -> Catalog -> Either [ResolutionError a] ((r a), [ResolutionSuccess a])
-runResolverWError resolver dialect catalog =
-    let (result, warningsSuccesses) = runResolverWarn resolver dialect catalog
+runResolverWError 
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either [ResolutionError a] (s a, [ResolutionSuccess a])
+runResolverWError resolver dialect interpreter =
+    let (result, warningsSuccesses) = runResolverWarn resolver dialect interpreter
         warnings = lefts warningsSuccesses
         successes = rights warningsSuccesses
      in case (result, warnings) of
@@ -93,12 +125,27 @@ runResolverWError resolver dialect catalog =
             (Right _, ws) -> Left ws
             (Left e, ws) -> Left (e:ws)
 
+runResolverWErrorState
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either [ResolutionError a] (InMemoryCatalog, s a, [ResolutionSuccess a])
+runResolverWErrorState resolver dialect interpreter =
+    let (result, warningsSuccesses) = runResolverWarnState resolver dialect interpreter
+        warnings = lefts warningsSuccesses
+        successes = rights warningsSuccesses
+     in case (result, warnings) of
+            (Right (x, y), []) -> Right (x, y, successes)
+            (Right _, ws) -> Left ws
+            (Left e, ws) -> Left (e:ws)
 
-runResolverNoWarn :: Dialect d => Resolver r a -> Proxy d -> Catalog -> Either (ResolutionError a) (r a)
-runResolverNoWarn resolver dialect catalog = fst $ runResolverWarn resolver dialect catalog
+runResolverNoWarn 
+    :: Dialect d 
+    => Sem (ResolverEff a) (s a) -> Proxy d -> CatalogInterpreter -> Either (ResolutionError a) (s a)
+runResolverNoWarn resolver dialect interpreter = fst $ runResolverWarn resolver dialect interpreter
 
 
-resolveStatement :: Dialect d => Statement d RawNames a -> Resolver (Statement d ResolvedNames) a
+resolveStatement 
+    :: (Dialect d, Members (ResolverEff a) r)
+    => Statement d RawNames a -> Sem r (Statement d ResolvedNames a)
 resolveStatement (QueryStmt stmt) = QueryStmt <$> resolveQuery stmt
 resolveStatement (InsertStmt stmt) = InsertStmt <$> resolveInsert stmt
 resolveStatement (UpdateStmt stmt) = UpdateStmt <$> resolveUpdate stmt
@@ -118,10 +165,14 @@ resolveStatement (RollbackStmt info) = pure $ RollbackStmt info
 resolveStatement (ExplainStmt info stmt) = ExplainStmt info <$> resolveStatement stmt
 resolveStatement (EmptyStmt info) = pure $ EmptyStmt info
 
-resolveQuery :: Query RawNames a -> Resolver (Query ResolvedNames) a
+resolveQuery 
+    :: (Members (ResolverEff a) r)
+    => Query RawNames a -> Sem r (Query ResolvedNames a)
 resolveQuery = (withColumnsValue <$>) . resolveQueryWithColumns
 
-resolveQueryWithColumns :: Query RawNames a -> Resolver (WithColumns (Query ResolvedNames)) a
+resolveQueryWithColumns 
+    :: (Members (ResolverEff a) r)
+    => Query RawNames a -> Sem r (WithColumns (Query ResolvedNames) a)
 resolveQueryWithColumns (QuerySelect info select) = do
     WithColumnsAndOrders select' columns _  <- resolveSelectAndOrders select []
     pure $ WithColumns (QuerySelect info select') columns
@@ -152,12 +203,12 @@ resolveQueryWithColumns (QueryIntersect info Unused lhs rhs) = do
 resolveQueryWithColumns (QueryWith info [] query) = overWithColumns (QueryWith info []) <$> resolveQueryWithColumns query
 resolveQueryWithColumns (QueryWith info (cte:ctes) query) = do
     cte' <- resolveCTE cte
-    Catalog{..} <- asks catalog
 
     let TableAlias _ alias _ = cteAlias cte'
 
-    updateBindings <- fmap ($ local (mapBindings $ bindCTE cte')) $
-        case catalogHasTable $ QTableName () None alias of
+    updateBindings <- fmap ($ local (mapBindings $ bindCTE cte')) $ do
+        exists <- catalogHasTable $ QTableName () None alias
+        case exists of
             Exists -> asks onCTECollision
             DoesNotExist -> pure id
 
@@ -177,7 +228,9 @@ resolveQueryWithColumns (QueryOffset info offset query) = overWithColumns (Query
 
 newtype ResolvedOrders a = ResolvedOrders [Order ResolvedNames a]
 
-resolveOrders :: Query RawNames a -> [Order RawNames a] -> Resolver ResolvedOrders a
+resolveOrders 
+    :: (Members (ResolverEff a) r)
+    => Query RawNames a -> [Order RawNames a] -> Sem r (ResolvedOrders a)
 resolveOrders query orders = case query of
     QuerySelect _ s -> do
         -- dispatch to dialect specific binding rules :)
@@ -270,7 +323,9 @@ tablishColumnNames (TablishLateralView _ LateralView{..} lhs) =
         TablishAliasesTC _ cAliases -> cols ++ map RColumnAlias cAliases
     
 
-resolveSelectAndOrders :: Select RawNames a -> [Order RawNames a] -> Resolver (WithColumnsAndOrders (Select ResolvedNames)) a
+resolveSelectAndOrders 
+    :: (Members (ResolverEff a) r)
+    => Select RawNames a -> [Order RawNames a] -> Sem r (WithColumnsAndOrders (Select ResolvedNames) a)
 resolveSelectAndOrders Select{..} orders = do
     (selectFrom', columns) <- traverse resolveSelectFrom selectFrom >>= \case
         Nothing -> pure (Nothing, [])
@@ -306,7 +361,9 @@ resolveSelectAndOrders Select{..} orders = do
     maybeBindTimeSlice (Just timeseries) = bindColumns [(Nothing, [RColumnAlias $ selectTimeseriesSliceName timeseries])]
 
 
-resolveCTE :: CTE RawNames a -> Resolver (CTE ResolvedNames) a
+resolveCTE 
+    :: (Members (ResolverEff a) r)
+    => CTE RawNames a -> Sem r (CTE ResolvedNames a)
 resolveCTE CTE{..} = do
     cteQuery' <- resolveQuery cteQuery
     pure $ CTE
@@ -314,7 +371,9 @@ resolveCTE CTE{..} = do
         , ..
         }
 
-resolveInsert :: Insert RawNames a -> Resolver (Insert ResolvedNames) a
+resolveInsert 
+    :: (Members (ResolverEff a) r)
+    => Insert RawNames a -> Sem r (Insert ResolvedNames a)
 resolveInsert Insert{..} = do
     insertTable'@(RTableName fqtn _) <- resolveTableName insertTable
     let insertColumns' = fmap (fmap (\uqcn -> RColumnRef $ uqcn { columnNameTable = Identity fqtn })) insertColumns
@@ -326,17 +385,23 @@ resolveInsert Insert{..} = do
         , ..
         }
 
-resolveInsertValues :: InsertValues RawNames a -> Resolver (InsertValues ResolvedNames) a
+resolveInsertValues 
+    :: (Members (ResolverEff a) r)
+    => InsertValues RawNames a -> Sem r (InsertValues ResolvedNames a)
 resolveInsertValues (InsertExprValues info exprs) = InsertExprValues info <$> mapM (mapM resolveDefaultExpr) exprs
 resolveInsertValues (InsertSelectValues query) = InsertSelectValues <$> resolveQuery query
 resolveInsertValues (InsertDefaultValues info) = pure $ InsertDefaultValues info
 resolveInsertValues (InsertDataFromFile info path) = pure $ InsertDataFromFile info path
 
-resolveDefaultExpr :: DefaultExpr RawNames a -> Resolver (DefaultExpr ResolvedNames) a
+resolveDefaultExpr 
+    :: (Members (ResolverEff a) r)
+    => DefaultExpr RawNames a -> Sem r (DefaultExpr ResolvedNames a)
 resolveDefaultExpr (DefaultValue info) = pure $ DefaultValue info
 resolveDefaultExpr (ExprValue expr) = ExprValue <$> resolveExpr expr
 
-resolveUpdate :: Update RawNames a -> Resolver (Update ResolvedNames) a
+resolveUpdate 
+    :: (Members (ResolverEff a) r)
+    => Update RawNames a -> Sem r (Update ResolvedNames a)
 resolveUpdate Update{..} = do
     updateTable'@(RTableName fqtn _) <- resolveTableName updateTable
 
@@ -363,27 +428,34 @@ resolveUpdate Update{..} = do
         , ..
         }
 
-resolveDelete :: forall a . Delete RawNames a -> Resolver (Delete ResolvedNames) a
+resolveDelete 
+    :: (Members (ResolverEff a) r)
+    => Delete RawNames a -> Sem r (Delete ResolvedNames a)
 resolveDelete (Delete info tableName expr) = do
     tableName'@(RTableName fqtn table@SchemaMember{..}) <- resolveTableName tableName
-    when (tableType /= Table) $ throwError $ DeleteFromView fqtn
+    when (tableType /= Table) $ throw $ DeleteFromView fqtn
     let QTableName tableInfo _ _ = tableName
     bindColumns [(Just $ RTableRef fqtn table, map (\ (QColumnName () None column) -> RColumnRef $ QColumnName tableInfo (pure fqtn) column) columnsList)] $ do
         expr' <- traverse resolveExpr expr
         pure $ Delete info tableName' expr'
 
-
-resolveTruncate :: Truncate RawNames a -> Resolver (Truncate ResolvedNames) a
+resolveTruncate 
+    :: (Members (ResolverEff a) r)
+    => Truncate RawNames a -> Sem r (Truncate ResolvedNames a)
 resolveTruncate (Truncate info name) = do
     name' <- resolveTableName name
     pure $ Truncate info name'
 
-
-resolveCreateTable :: forall d a . (Dialect d) => CreateTable d RawNames a -> Resolver (CreateTable d ResolvedNames) a
+resolveCreateTable 
+    :: forall d a r. (Dialect d, Members (ResolverEff a) r)
+    => CreateTable d RawNames a -> Sem r (CreateTable d ResolvedNames a)
 resolveCreateTable CreateTable{..} = do
-    createTableName'@(RCreateTableName fqtn _) <- resolveCreateTableName createTableName createTableIfNotExists
+    createTableName' <- catalogResolveCreateTableName createTableName 
 
-    WithColumns createTableDefinition' columns <- resolveTableDefinition fqtn createTableDefinition
+    (WithColumns createTableDefinition' columns, schema) <- resolveTableDefinition createTableName' createTableDefinition
+    let rTable = RTableName createTableName' schema
+    catalogResolveCreateTable rTable $ isJust createTableIfNotExists
+
     bindColumns columns $ do
         createTableExtra' <- traverse (resolveCreateTableExtra (Proxy :: Proxy d)) createTableExtra
         pure $ CreateTable
@@ -394,7 +466,6 @@ resolveCreateTable CreateTable{..} = do
             }
 
 
-
 mkTableSchemaMember :: [UQColumnName ()] -> SchemaMember
 mkTableSchemaMember columnsList = SchemaMember{..}
   where
@@ -402,12 +473,14 @@ mkTableSchemaMember columnsList = SchemaMember{..}
     persistence = Persistent
     viewQuery = Nothing
 
-resolveTableDefinition :: FQTableName a -> TableDefinition d RawNames a -> Resolver (WithColumns (TableDefinition d ResolvedNames)) a
+resolveTableDefinition 
+    :: (Members (ResolverEff a) r)
+    => FQTableName a -> TableDefinition d RawNames a -> Sem r (WithColumns (TableDefinition d ResolvedNames) a, SchemaMember)
 resolveTableDefinition fqtn (TableColumns info cs) = do
     cs' <- mapM resolveColumnOrConstraint cs
     let columns = mapMaybe columnOrConstraintToColumn $ NonEmpty.toList cs'
         table = mkTableSchemaMember $ map (\ c -> c{columnNameInfo = (), columnNameTable = None}) columns
-    pure $ WithColumns (TableColumns info cs') [(Just $ RTableRef fqtn table, map RColumnRef columns)]
+    pure (WithColumns (TableColumns info cs') [(Just $ RTableRef fqtn table, map RColumnRef columns)], table)
   where
     columnOrConstraintToColumn (ColumnOrConstraintConstraint _) = Nothing
     columnOrConstraintToColumn (ColumnOrConstraintColumn ColumnDefinition{columnDefinitionName = QColumnName columnInfo None name}) =
@@ -415,8 +488,8 @@ resolveTableDefinition fqtn (TableColumns info cs) = do
 
 
 resolveTableDefinition _ (TableLike info name) = do
-    name' <- resolveTableName name
-    pure $ WithColumns (TableLike info name') []
+    name'@(RTableName _ schema) <- resolveTableName name
+    pure (WithColumns (TableLike info name') [], schema)
 
 resolveTableDefinition fqtn (TableAs info cols query) = do
     query' <- resolveQuery query
@@ -428,18 +501,21 @@ resolveTableDefinition fqtn (TableAs info cols query) = do
             columnNameInfo = ()
             columnNameName = cn
             columnNameTable = None
-    pure $ WithColumns (TableAs info cols query') [(Just $ RTableRef fqtn table, columns)]
+    pure (WithColumns (TableAs info cols query') [(Just $ RTableRef fqtn table, columns)], table)
 
 resolveTableDefinition _ (TableNoColumnInfo info) = do
-    pure $ WithColumns (TableNoColumnInfo info) []
+    pure (WithColumns (TableNoColumnInfo info) [], mkTableSchemaMember [])
 
-
-resolveColumnOrConstraint :: ColumnOrConstraint d RawNames a -> Resolver (ColumnOrConstraint d ResolvedNames) a
+resolveColumnOrConstraint 
+    :: (Members (ResolverEff a) r)
+    => ColumnOrConstraint d RawNames a -> Sem r (ColumnOrConstraint d ResolvedNames a)
 resolveColumnOrConstraint (ColumnOrConstraintColumn column) = ColumnOrConstraintColumn <$> resolveColumnDefinition column
 resolveColumnOrConstraint (ColumnOrConstraintConstraint constraint) = pure $ ColumnOrConstraintConstraint constraint
 
 
-resolveColumnDefinition :: ColumnDefinition d RawNames a -> Resolver (ColumnDefinition d ResolvedNames) a
+resolveColumnDefinition 
+    :: (Members (ResolverEff a) r)
+    => ColumnDefinition d RawNames a -> Sem r (ColumnDefinition d ResolvedNames a)
 resolveColumnDefinition ColumnDefinition{..} = do
     columnDefinitionDefault' <- traverse resolveExpr columnDefinitionDefault
     pure $ ColumnDefinition
@@ -448,7 +524,9 @@ resolveColumnDefinition ColumnDefinition{..} = do
         }
 
 
-resolveAlterTable :: AlterTable RawNames a -> Resolver (AlterTable ResolvedNames) a
+resolveAlterTable 
+    :: (Members (ResolverEff a) r)
+    => AlterTable RawNames a -> Sem r (AlterTable ResolvedNames a)
 resolveAlterTable (AlterTableRenameTable info old new) = do
     old'@(RTableName (QTableName _ (Identity oldSchema@(QSchemaName _ (Identity oldDb@(DatabaseName _ _)) _ oldSchemaType)) _) table) <- resolveTableName old
 
@@ -478,18 +556,22 @@ resolveAlterTable (AlterTableAddColumns info table columns) = do
     pure $ AlterTableAddColumns info table' columns
 
 
-resolveDropTable :: DropTable RawNames a -> Resolver (DropTable ResolvedNames) a
+resolveDropTable 
+    :: (Members (ResolverEff a) r)
+    => DropTable RawNames a -> Sem r (DropTable ResolvedNames a)
 resolveDropTable DropTable{..} = do
-    dropTableNames' <- mapM resolveDropTableName dropTableNames
+    dropTableNames' <- mapM (`resolveDropTableName` dropTableIfExists) dropTableNames
     pure $ DropTable
         { dropTableNames = dropTableNames'
         , ..
         }
 
 
-resolveCreateView :: CreateView RawNames a -> Resolver (CreateView ResolvedNames) a
+resolveCreateView 
+    :: (Members (ResolverEff a) r)
+    => CreateView RawNames a -> Sem r (CreateView ResolvedNames a)
 resolveCreateView CreateView{..} = do
-    createViewName' <- resolveCreateTableName createViewName createViewIfNotExists
+    createViewName' <- catalogResolveCreateTableName createViewName
     createViewQuery' <- resolveQuery createViewQuery
     pure $ CreateView
         { createViewName = createViewName'
@@ -498,25 +580,33 @@ resolveCreateView CreateView{..} = do
         }
 
 
-resolveDropView :: DropView RawNames a -> Resolver (DropView ResolvedNames) a
+resolveDropView 
+    :: (Members (ResolverEff a) r)
+    => DropView RawNames a -> Sem r (DropView ResolvedNames a)
 resolveDropView DropView{..} = do
-    dropViewName' <- resolveDropTableName dropViewName
+    dropViewName' <- resolveDropTableName dropViewName dropViewIfExists
     pure $ DropView
         { dropViewName = dropViewName'
         , ..
         }
 
 
-resolveCreateSchema :: CreateSchema RawNames a -> Resolver (CreateSchema ResolvedNames) a
+resolveCreateSchema 
+    :: (Members (ResolverEff a) r)
+    => CreateSchema RawNames a -> Sem r (CreateSchema ResolvedNames a)
 resolveCreateSchema CreateSchema{..} = do
-    createSchemaName' <- resolveCreateSchemaName createSchemaName createSchemaIfNotExists
-    pure $ CreateSchema
-        { createSchemaName = createSchemaName'
-        , ..
-        }
+    createSchemaName' <- catalogResolveCreateSchemaName createSchemaName
+    let ret = CreateSchema
+                { createSchemaName = createSchemaName'
+                , ..
+                }
+    catalogResolveCreateSchema createSchemaName' $ isJust createSchemaIfNotExists
+    pure ret
 
 
-resolveSelectColumns :: SelectColumns RawNames a -> Resolver (SelectColumns ResolvedNames) a
+resolveSelectColumns 
+    :: (Members (ResolverEff a) r)
+    => SelectColumns RawNames a -> Sem r (SelectColumns ResolvedNames a)
 resolveSelectColumns (SelectColumns info selections) = SelectColumns info <$> mapM resolveSelection selections
 
 
@@ -525,7 +615,9 @@ qualifiedOnly = mapMaybe (\(mTable, cs) -> case mTable of
                               (Just t) -> Just (t, cs)
                               Nothing -> Nothing)
 
-resolveSelection :: Selection RawNames a -> Resolver (Selection ResolvedNames) a
+resolveSelection 
+    :: (Members (ResolverEff a) r)
+    => Selection RawNames a -> Sem r (Selection ResolvedNames a)
 resolveSelection (SelectStar info Nothing Unused) = do
     columns <- asks (boundColumns . bindings)
     pure $ SelectStar info Nothing $ StarColumnNames $ map (const info <$>) $ snd =<< columns
@@ -534,22 +626,24 @@ resolveSelection (SelectStar info (Just oqtn@(QTableName _ (Just schema) _)) Unu
     columns <- asks (boundColumns . bindings)
     let qualifiedColumns = qualifiedOnly columns
     case filter ((liftA2 (&&) (resolvedTableHasSchema schema) (resolvedTableHasName oqtn)) . fst) qualifiedColumns of
-        [] -> throwError $ UnintroducedTable oqtn
+        [] -> throw $ UnintroducedTable oqtn
         [(t, cs)] -> pure $ SelectStar info (Just t) $ StarColumnNames $ map (const info <$>) cs
-        _ -> throwError $ AmbiguousTable oqtn
+        _ -> throw $ AmbiguousTable oqtn
 
 resolveSelection (SelectStar info (Just oqtn@(QTableName tableInfo Nothing table)) Unused) = do
     columns <- asks (boundColumns . bindings)
     let qualifiedColumns = qualifiedOnly columns
     case filter (resolvedTableHasName oqtn . fst) qualifiedColumns of
-        [] -> throwError $ UnintroducedTable $ QTableName tableInfo Nothing table
+        [] -> throw $ UnintroducedTable $ QTableName tableInfo Nothing table
         [(t, cs)] -> pure $ SelectStar info (Just t) $ StarColumnNames $ map (const info <$>) cs
-        _ -> throwError $ AmbiguousTable $ QTableName tableInfo Nothing table
+        _ -> throw $ AmbiguousTable $ QTableName tableInfo Nothing table
 
 resolveSelection (SelectExpr info alias expr) = SelectExpr info alias <$> resolveExpr expr
 
 
-resolveExpr :: Expr RawNames a -> Resolver (Expr ResolvedNames) a
+resolveExpr 
+    :: (Members (ResolverEff a) r)
+    => Expr RawNames a -> Sem r (Expr ResolvedNames a)
 resolveExpr (BinOpExpr info op lhs rhs) = BinOpExpr info op <$> resolveExpr lhs <*> resolveExpr rhs
 
 resolveExpr (CaseExpr info whens else_) = CaseExpr info <$> mapM resolveWhen whens <*> traverse resolveExpr else_
@@ -605,14 +699,17 @@ resolveExpr (LambdaExpr info params body) = do
     expr <- bindLambdaParams params $ resolveExpr body
     pure $ LambdaExpr info params expr
 
-resolveOrder :: [Expr ResolvedNames a]
-             -> Order RawNames a
-             -> Resolver (Order ResolvedNames) a
+resolveOrder 
+    :: (Members (ResolverEff a) r)
+    => [Expr ResolvedNames a]
+    -> Order RawNames a
+    -> Sem r (Order ResolvedNames a)
 resolveOrder exprs (Order i posOrExpr direction nullPos) =
     Order i <$> resolvePositionOrExpr exprs posOrExpr <*> pure direction <*> pure nullPos
 
-resolveWindowExpr :: WindowExpr RawNames a
-                  -> Resolver (WindowExpr ResolvedNames) a
+resolveWindowExpr 
+    :: (Members (ResolverEff a) r)
+    => WindowExpr RawNames a -> Sem r (WindowExpr ResolvedNames a)
 resolveWindowExpr WindowExpr{..} =
   do
     windowExprPartition' <- traverse resolvePartition windowExprPartition
@@ -623,8 +720,9 @@ resolveWindowExpr WindowExpr{..} =
         , ..
         }
 
-resolvePartialWindowExpr :: PartialWindowExpr RawNames a
-                         -> Resolver (PartialWindowExpr ResolvedNames) a
+resolvePartialWindowExpr 
+    :: (Members (ResolverEff a) r)
+    => PartialWindowExpr RawNames a -> Sem r (PartialWindowExpr ResolvedNames a)
 resolvePartialWindowExpr PartialWindowExpr{..} =
   do
     partWindowExprOrder' <- mapM (resolveOrder []) partWindowExprOrder
@@ -635,61 +733,65 @@ resolvePartialWindowExpr PartialWindowExpr{..} =
         , ..
         }
 
-resolveNamedWindowExpr :: NamedWindowExpr RawNames a
-                       -> Resolver (NamedWindowExpr ResolvedNames) a
+resolveNamedWindowExpr 
+    :: (Members (ResolverEff a) r)
+    => NamedWindowExpr RawNames a -> Sem r (NamedWindowExpr ResolvedNames a)
 resolveNamedWindowExpr (NamedWindowExpr info name window) =
   NamedWindowExpr info name <$> resolveWindowExpr window
 resolveNamedWindowExpr (NamedPartialWindowExpr info name partWindow) =
   NamedPartialWindowExpr info name <$> resolvePartialWindowExpr partWindow
 
-resolveTableName :: OQTableName a -> Resolver RTableName a
+resolveTableName 
+    :: (Members (ResolverEff a) r)
+    => OQTableName a -> Sem r (RTableName a)
 resolveTableName table = do
-    Catalog{..} <- asks catalog
-    lift $ lift $ catalogResolveTableName table
+    catalogResolveTableName table
 
-resolveCreateTableName :: CreateTableName RawNames a -> Maybe a -> Resolver (CreateTableName ResolvedNames) a
-resolveCreateTableName tableName ifNotExists = do
-    Catalog{..} <- asks catalog
-    tableName'@(RCreateTableName fqtn existence) <- lift $ lift $ catalogResolveCreateTableName tableName
+resolveDropTableName 
+    :: (Members (ResolverEff a) r)
+    => DropTableName RawNames a -> Maybe a -> Sem r (DropTableName ResolvedNames a)
+resolveDropTableName tableName ifExists = do
+    catalogResolveDropTable tableName (isJust ifExists)
 
-    when ((existence, void ifNotExists) == (Exists, Nothing)) $ tell [ Left $ UnexpectedTable fqtn ]
-
-    pure $ tableName'
-
-resolveDropTableName :: DropTableName RawNames a -> Resolver (DropTableName ResolvedNames) a
-resolveDropTableName tableName = do
-    (getName <$> resolveTableName tableName)
-        `catchError` handleMissing
-  where
-    getName (RTableName name table) = RDropExistingTableName name table
-    handleMissing (MissingTable name) = pure $ RDropMissingTableName name
-    handleMissing e = throwError e
-
-
-resolveCreateSchemaName :: CreateSchemaName RawNames a -> Maybe a -> Resolver (CreateSchemaName ResolvedNames) a
-resolveCreateSchemaName schemaName ifNotExists = do
-    Catalog{..} <- asks catalog
-    schemaName'@(RCreateSchemaName fqsn existence) <- lift $ lift $ catalogResolveCreateSchemaName schemaName
-    when ((existence, void ifNotExists) == (Exists, Nothing)) $ tell [ Left $ UnexpectedSchema fqsn ]
-    pure schemaName'
-
-resolveSchemaName :: SchemaName RawNames a -> Resolver (SchemaName ResolvedNames) a
+resolveSchemaName 
+    :: (Members (ResolverEff a) r)
+    => SchemaName RawNames a -> Sem r (SchemaName ResolvedNames a)
 resolveSchemaName schemaName = do
-    Catalog{..} <- asks catalog
-    lift $ lift $ catalogResolveSchemaName schemaName
+    catalogResolveSchemaName schemaName
 
+resolveTableRef 
+    :: (Members (ResolverEff a) r)
+    => OQTableName a -> Sem r (WithColumns RTableRef a)
+resolveTableRef oqtn@(QTableName _ Nothing _) = do
+    ResolverInfo{bindings = Bindings{..}} <- ask
+    case filter (resolvedTableHasName oqtn) $ map (uncurry RTableAlias) boundCTEs of
+        [t] -> do
+            tell [Right $ TableRefResolved oqtn t]
+            pure $ WithColumns t [(Just t, getColumnList t)]
+        _:_ -> throw $ AmbiguousTable oqtn
+        [] -> resolveTableRefInCatalog oqtn
 
-resolveTableRef :: OQTableName a -> Resolver (WithColumns RTableRef) a
-resolveTableRef tableName = do
-    ResolverInfo{catalog = Catalog{..}, bindings = Bindings{..}} <- ask
-    lift $ lift $ catalogResolveTableRef boundCTEs tableName
+resolveTableRef oqtn@(QTableName _ (Just _) _) = resolveTableRefInCatalog oqtn
 
-resolveColumnName :: forall a . OQColumnName a -> Resolver RColumnRef a
+resolveTableRefInCatalog
+    :: (Members (ResolverEff a) r)
+    => OQTableName a -> Sem r (WithColumns RTableRef a)
+resolveTableRefInCatalog oqtn@(QTableName tInfo _ _) = do
+        RTableName fqtn table@SchemaMember{..} <- catalogResolveTableName oqtn
+        let makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
+            tableRef = RTableRef fqtn table
+        pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
+
+resolveColumnName 
+    :: (Members (ResolverEff a) r)
+    => OQColumnName a -> Sem r (RColumnRef a)
 resolveColumnName columnName = do
-    (Catalog{..}, Bindings{..}) <- asks (catalog &&& bindings)
-    lift $ lift $ catalogResolveColumnName boundColumns columnName
+    Bindings{..} <- asks bindings
+    catalogResolveColumnName boundColumns columnName
 
-resolveLambdaParamOrColumnName :: forall a . a -> OQColumnName a -> Resolver (Expr ResolvedNames) a
+resolveLambdaParamOrColumnName 
+    :: (Members (ResolverEff a) r)
+    => a -> OQColumnName a -> Sem r (Expr ResolvedNames a)
 resolveLambdaParamOrColumnName info columnName = do
     params <- asks lambdaScope
     case isParam params columnName of 
@@ -701,20 +803,26 @@ resolveLambdaParamOrColumnName info columnName = do
     isParam params (QColumnName _ Nothing name) = find (\(LambdaParam _ pname _) -> pname == name) $ concat params
 
 
-resolvePartition :: Partition RawNames a -> Resolver (Partition ResolvedNames) a
+resolvePartition 
+    :: (Members (ResolverEff a) r)
+    => Partition RawNames a -> Sem r (Partition ResolvedNames a)
 resolvePartition (PartitionBy info exprs) = PartitionBy info <$> mapM resolveExpr exprs
 resolvePartition (PartitionBest info) = pure $ PartitionBest info
 resolvePartition (PartitionNodes info) = pure $ PartitionNodes info
 
 
-resolveSelectFrom :: SelectFrom RawNames a -> Resolver (WithColumns (SelectFrom ResolvedNames)) a
+resolveSelectFrom 
+    :: (Members (ResolverEff a) r)
+    => SelectFrom RawNames a -> Sem r (WithColumns (SelectFrom ResolvedNames) a)
 resolveSelectFrom (SelectFrom info tablishes) = do
     tablishesWithColumns <- mapM resolveTablish tablishes
     let (tablishes', css) = unzip $ map (\ (WithColumns t cs) -> (t, cs)) tablishesWithColumns
     pure $ WithColumns (SelectFrom info tablishes') $ concat css
 
 
-resolveTablish :: forall a . Tablish RawNames a -> Resolver (WithColumns (Tablish ResolvedNames)) a
+resolveTablish 
+    :: (Members (ResolverEff a) r)
+    => Tablish RawNames a -> Sem r (WithColumns (Tablish ResolvedNames) a)
 resolveTablish (TablishTable info aliases name) = do
     WithColumns name' columns <- resolveTableRef name
 
@@ -786,12 +894,17 @@ resolveTablish (TablishLateralView info LateralView{..} lhs) = do
 
         pure $ WithColumns (TablishLateralView info view lhs') $ lcolumns ++ rcolumns
   where
+    defaultAliases
+        :: forall a r. (Members (ResolverEff a) r)
+        => Expr ResolvedNames a -> Sem r [ColumnAlias a]
     defaultAliases (FunctionExpr r (QFunctionName _ _ rawName) _ args _ _ _) = do
         let argsLessOne = length args - 1
 
             alias = makeColumnAlias r
 
-            prependAlias :: Text -> Int -> Resolver ColumnAlias a
+            prependAlias 
+                :: (Members (ResolverEff a) r)
+                => Text -> Int -> Sem r (ColumnAlias a)
             prependAlias prefix int = alias $ prefix `TL.append` (TL.pack $ show int)
 
             name = TL.toLower rawName
@@ -813,10 +926,12 @@ resolveTablish (TablishLateralView info LateralView{..} lhs) = do
 
         sequence functionSpecificLookups
 
-    defaultAliases _ = throwError MissingFunctionExprForLateralView
+    defaultAliases _ = throw MissingFunctionExprForLateralView
 
 
-resolveJoinCondition :: JoinCondition RawNames a -> ColumnSet a -> ColumnSet a -> Resolver (JoinCondition ResolvedNames) a
+resolveJoinCondition 
+    :: (Members (ResolverEff a) r)
+    => JoinCondition RawNames a -> ColumnSet a -> ColumnSet a -> Sem r (JoinCondition ResolvedNames a)
 resolveJoinCondition (JoinNatural info _) lhs rhs = do
     let name (RColumnRef (QColumnName _ _ column)) = column
         name (RColumnAlias (ColumnAlias _ alias _)) = alias
@@ -834,9 +949,9 @@ resolveJoinCondition (JoinUsing info cols) lhs rhs = JoinUsing info <$> mapM res
     resolveColumn (QColumnName columnInfo _ column) = do
         let resolveIn columns =
                 case filter hasName $ snd =<< columns of
-                    [] -> throwError $ MissingColumn $ QColumnName columnInfo Nothing column
+                    [] -> throw $ MissingColumn $ QColumnName columnInfo Nothing column
                     [c] -> pure c
-                    _ -> throwError $ AmbiguousColumn $ QColumnName columnInfo Nothing column
+                    _ -> throw $ AmbiguousColumn $ QColumnName columnInfo Nothing column
             hasName (RColumnRef (QColumnName _ _ column')) = column' == column
             hasName (RColumnAlias (ColumnAlias _ column' _)) = column' == column
         l <- resolveIn lhs
@@ -844,10 +959,14 @@ resolveJoinCondition (JoinUsing info cols) lhs rhs = JoinUsing info <$> mapM res
         pure $ RUsingColumn l r
 
 
-resolveSelectWhere :: SelectWhere RawNames a -> Resolver (SelectWhere ResolvedNames) a
+resolveSelectWhere 
+    :: (Members (ResolverEff a) r)
+    => SelectWhere RawNames a -> Sem r (SelectWhere ResolvedNames a)
 resolveSelectWhere (SelectWhere info expr) = SelectWhere info <$> resolveExpr expr
 
-resolveSelectTimeseries :: SelectTimeseries RawNames a -> Resolver (SelectTimeseries ResolvedNames) a
+resolveSelectTimeseries 
+    :: (Members (ResolverEff a) r)
+    => SelectTimeseries RawNames a -> Sem r (SelectTimeseries ResolvedNames a)
 resolveSelectTimeseries SelectTimeseries{..} = do
     selectTimeseriesPartition' <- traverse resolvePartition selectTimeseriesPartition
     selectTimeseriesOrder' <- resolveExpr selectTimeseriesOrder
@@ -857,22 +976,28 @@ resolveSelectTimeseries SelectTimeseries{..} = do
         , ..
         }
 
-resolvePositionOrExpr :: [Expr ResolvedNames a] -> PositionOrExpr RawNames a -> Resolver (PositionOrExpr ResolvedNames) a
+resolvePositionOrExpr 
+    :: (Members (ResolverEff a) r)
+    => [Expr ResolvedNames a] -> PositionOrExpr RawNames a -> Sem r (PositionOrExpr ResolvedNames a)
 resolvePositionOrExpr _ (PositionOrExprExpr expr) = PositionOrExprExpr <$> resolveExpr expr
 resolvePositionOrExpr exprs (PositionOrExprPosition info pos Unused)
-    | pos < 1 = throwError $ BadPositionalReference info pos
+    | pos < 1 = throw $ BadPositionalReference info pos
     | otherwise =
         case drop (pos - 1) exprs of
             expr:_ -> pure $ PositionOrExprPosition info pos expr
-            [] -> throwError $ BadPositionalReference info pos
+            [] -> throw $ BadPositionalReference info pos
 
-resolveGroupingElement :: [Expr ResolvedNames a] -> GroupingElement RawNames a -> Resolver (GroupingElement ResolvedNames) a
+resolveGroupingElement 
+    :: (Members (ResolverEff a) r)
+    => [Expr ResolvedNames a] -> GroupingElement RawNames a -> Sem r (GroupingElement ResolvedNames a)
 resolveGroupingElement exprs (GroupingElementExpr info posOrExpr) =
     GroupingElementExpr info <$> resolvePositionOrExpr exprs posOrExpr
 resolveGroupingElement _ (GroupingElementSet info exprs) =
     GroupingElementSet info <$> mapM resolveExpr exprs
 
-resolveSelectGroup :: [Expr ResolvedNames a] -> SelectGroup RawNames a -> Resolver (SelectGroup ResolvedNames) a
+resolveSelectGroup 
+    :: (Members (ResolverEff a) r)
+    => [Expr ResolvedNames a] -> SelectGroup RawNames a -> Sem r (SelectGroup ResolvedNames a)
 resolveSelectGroup exprs SelectGroup{..} = do
     selectGroupGroupingElements' <- mapM (resolveGroupingElement exprs) selectGroupGroupingElements
     pure $ SelectGroup
@@ -880,10 +1005,13 @@ resolveSelectGroup exprs SelectGroup{..} = do
         , ..
         }
 
-resolveSelectHaving :: SelectHaving RawNames a -> Resolver (SelectHaving ResolvedNames) a
+resolveSelectHaving 
+    :: (Members (ResolverEff a) r)
+    => SelectHaving RawNames a -> Sem r (SelectHaving ResolvedNames a)
 resolveSelectHaving (SelectHaving info exprs) = SelectHaving info <$> mapM resolveExpr exprs
 
-resolveSelectNamedWindow :: SelectNamedWindow RawNames a
-                         -> Resolver (SelectNamedWindow ResolvedNames) a
+resolveSelectNamedWindow 
+    :: (Members (ResolverEff a) r)
+    => SelectNamedWindow RawNames a -> Sem r (SelectNamedWindow ResolvedNames a)
 resolveSelectNamedWindow (SelectNamedWindow info windows) =
   SelectNamedWindow info <$> mapM resolveNamedWindowExpr windows

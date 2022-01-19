@@ -42,8 +42,6 @@ import Database.Sql.Util.Tables
 import Database.Sql.Util.Schema as Schema
 
 import Control.Arrow
-import Control.Monad.Reader (asks, local)
-import Control.Monad.Writer (listen)
 import Control.Monad.Identity
 
 import Data.Either (partitionEithers)
@@ -66,6 +64,8 @@ import qualified Data.Map as M
 import Data.Data (Data)
 import GHC.Generics (Generic)
 
+import Polysemy
+import Polysemy.Writer
 
 data Vertica
 
@@ -109,7 +109,9 @@ deriving instance ConstrainSASNames Functor r => Functor (TableInfo r)
 deriving instance ConstrainSASNames Foldable r => Foldable (TableInfo r)
 deriving instance ConstrainSASNames Traversable r => Traversable (TableInfo r)
 
-resolveTableInfo :: TableInfo RawNames a -> Resolver (TableInfo ResolvedNames) a
+resolveTableInfo 
+    :: (Members (ResolverEff a) r)
+    => TableInfo RawNames a -> Sem r (TableInfo ResolvedNames a)
 resolveTableInfo TableInfo{..} = do
         tableInfoOrdering' <- traverse (mapM $ resolveOrder []) tableInfoOrdering
         tableInfoEncoding' <- traverse resolveTableEncoding tableInfoEncoding
@@ -150,7 +152,9 @@ deriving instance ConstrainSASNames Functor r => Functor (TableEncoding r)
 deriving instance ConstrainSASNames Foldable r => Foldable (TableEncoding r)
 deriving instance ConstrainSASNames Traversable r => Traversable (TableEncoding r)
 
-resolveTableEncoding :: TableEncoding RawNames a -> Resolver (TableEncoding ResolvedNames) a
+resolveTableEncoding 
+    :: (Members (ResolverEff a) r)
+    => TableEncoding RawNames a -> Sem r (TableEncoding ResolvedNames a)
 resolveTableEncoding (TableEncoding info encodings) = do
     encodings' <- forM encodings $ \ (column, encoding) -> do
         column' <- resolveColumnName column
@@ -170,7 +174,9 @@ deriving instance ConstrainSASNames Functor r => Functor (Segmentation r)
 deriving instance ConstrainSASNames Foldable r => Foldable (Segmentation r)
 deriving instance ConstrainSASNames Traversable r => Traversable (Segmentation r)
 
-resolveSegmentation :: Segmentation RawNames a -> Resolver (Segmentation ResolvedNames) a
+resolveSegmentation 
+    :: (Members (ResolverEff a) r)
+    => Segmentation RawNames a -> Sem r (Segmentation ResolvedNames a)
 resolveSegmentation (UnsegmentedAllNodes info) = pure $ UnsegmentedAllNodes info
 resolveSegmentation (UnsegmentedOneNode info node) = pure $ UnsegmentedOneNode info node
 resolveSegmentation (SegmentedBy info expr nodelist) = do
@@ -201,7 +207,9 @@ deriving instance ConstrainSASNames Functor r => Functor (Partitioning r)
 deriving instance ConstrainSASNames Foldable r => Foldable (Partitioning r)
 deriving instance ConstrainSASNames Traversable r => Traversable (Partitioning r)
 
-resolvePartitioning :: Partitioning RawNames a -> Resolver (Partitioning ResolvedNames) a
+resolvePartitioning 
+    :: (Members (ResolverEff a) r)
+    => Partitioning RawNames a -> Sem r (Partitioning ResolvedNames a)
 resolvePartitioning (Partitioning info expr) = Partitioning info <$> resolveExpr expr
 
 
@@ -434,7 +442,9 @@ instance HasColumnLineage (VerticaStatement ResolvedNames Range) where
 
 
 
-resolveVerticaStatement :: VerticaStatement RawNames a -> Resolver (VerticaStatement ResolvedNames) a
+resolveVerticaStatement 
+    :: (Members (ResolverEff a) r)
+    => VerticaStatement RawNames a -> Sem r (VerticaStatement ResolvedNames a)
 resolveVerticaStatement (VerticaStandardSqlStatement stmt) = VerticaStandardSqlStatement <$> resolveStatement stmt
 resolveVerticaStatement (VerticaCreateProjectionStatement CreateProjection{..}) = do
     WithColumns createProjectionQuery' columns <- resolveQueryWithColumns createProjectionQuery
@@ -487,23 +497,27 @@ resolveVerticaStatement (VerticaMergeStatement Merge{..}) = do
 
 resolveVerticaStatement (VerticaUnhandledStatement info) = pure $ VerticaUnhandledStatement info
 
-resolveMultipleRename :: MultipleRename RawNames a -> Resolver (MultipleRename ResolvedNames) a
+resolveMultipleRename 
+    :: (Members (ResolverEff a) r)
+    => MultipleRename RawNames a -> Sem r (MultipleRename ResolvedNames a)
 resolveMultipleRename (MultipleRename info []) = pure $ MultipleRename info []
 resolveMultipleRename (MultipleRename info (a:as)) = do
     -- TODO (part of T416947): apply derived updates based on warnings
-    (a', _) <- listen $ resolveAlterTable a
-    catalog <- asks catalog
+    (_, a') <- listen $ resolveAlterTable a
 
 
+    -- TODO: uncomment following lines when Catalog refactor compelete
     -- here we're discarding SchemaChangeErrors - I'm not sure what's right
-    let merge cat ch = fst $ applySchemaChange ch cat
-        catalog' =  foldl' merge catalog $ getSchemaChange a'
+    --let merge cat ch = fst $ applySchemaChange ch cat
+        --catalog' =  foldl' merge catalog $ getSchemaChange a'
 
-    MultipleRename info' as' <- local (\ ri -> ri { catalog = catalog' }) $ resolveMultipleRename $ MultipleRename info as
+    MultipleRename info' as' <- resolveMultipleRename $ MultipleRename info as
 
     pure $ MultipleRename info' (a':as')
 
-resolveSetSchema :: SetSchema RawNames a -> Resolver (SetSchema ResolvedNames) a
+resolveSetSchema 
+    :: (Members (ResolverEff a) r)
+    => SetSchema RawNames a -> Sem r (SetSchema ResolvedNames a)
 resolveSetSchema SetSchema{..} = do
     setSchemaTable' <- resolveTableName setSchemaTable
     setSchemaName' <- resolveSchemaName setSchemaName
@@ -526,9 +540,8 @@ instance HasSchemaChange (MultipleRename ResolvedNames a) where
     getSchemaChange (MultipleRename _ renames) = renames >>= getSchemaChange
 
 instance HasSchemaChange (SetSchema ResolvedNames a) where
-    getSchemaChange (SetSchema _ (RTableName fqtn table) schemaName) =
+    getSchemaChange (SetSchema _ (RTableName fqtn _) _) =
         [ Schema.DropTable $ void fqtn
-        , Schema.CreateTable (void fqtn { tableNameSchema = pure schemaName }) table
         ]
 
 

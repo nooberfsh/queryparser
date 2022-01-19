@@ -65,17 +65,17 @@ fmt expr = TL.pack $ (++ "\n") $ case parseExp (show expr) of
 tastyToHUnit :: Tasty.TestTree -> Assertion
 tastyToHUnit = (`Tasty.foldTestTree` mempty) Tasty.trivialFold{ Tasty.foldSingle = \ opts _ t -> assert . Tasty.resultSuccessful =<< Tasty.run opts t (const $ pure ()) }
 
-testVertica :: FilePath -> Catalog -> VerticaStatement RawNames Integer -> Assertion
+testVertica :: FilePath -> CatalogInterpreter -> VerticaStatement RawNames Integer -> Assertion
 testVertica name catalog stmt =
     tastyToHUnit $ goldenVsString name ("goldens" </> "scope" </> name) (pure $ TL.encodeUtf8 $ fmt $ second warnings $ runResolverWarn (VSQL.resolveVerticaStatement stmt) VSQL.dialectProxy catalog)
 
-testHive :: FilePath -> Catalog -> HiveStatement RawNames Integer -> Assertion
+testHive :: FilePath -> CatalogInterpreter -> HiveStatement RawNames Integer -> Assertion
 testHive name catalog stmt =
     tastyToHUnit $ goldenVsString name ("goldens" </> "scope" </> name) (pure $ TL.encodeUtf8 $ fmt $ second warnings $ runResolverWarn (HiveQL.resolveHiveStatement stmt) HiveQL.dialectProxy catalog)
 
 
 class Resolvable q => ResolvesSuccessfully q where
-    resolvesSuccessfully :: Text -> q -> Catalog -> Assertion
+    resolvesSuccessfully :: Text -> q -> CatalogInterpreter -> Assertion
 
 instance ResolvesSuccessfully (VerticaStatement RawNames Range) where
     resolvesSuccessfully sql q catalog =
@@ -83,7 +83,7 @@ instance ResolvesSuccessfully (VerticaStatement RawNames Range) where
          in assertEqual "" resolved resolved
               `catch` \ (AssertionFailed str) -> assertFailure $ unlines [str, show sql]
 
-parsesAndResolvesSuccessfullyVertica :: Catalog -> Text -> Assertion
+parsesAndResolvesSuccessfullyVertica :: CatalogInterpreter -> Text -> Assertion
 parsesAndResolvesSuccessfullyVertica catalog sql = case VP.parse sql of
     (Left e) -> assertFailure $ unlines
         [ "failed to parse:"
@@ -98,7 +98,7 @@ instance ResolvesSuccessfully (HiveStatement RawNames Range) where
          in assertEqual "" resolved resolved
               `catch` \ (AssertionFailed str) -> assertFailure $ unlines [str, show sql]
 
-parsesAndResolvesSuccessfullyHive :: Catalog -> Text -> Assertion
+parsesAndResolvesSuccessfullyHive :: CatalogInterpreter -> Text -> Assertion
 parsesAndResolvesSuccessfullyHive catalog sql = case HP.parse sql of
     (Left e) -> assertFailure $ unlines
         [ "failed to parse:"
@@ -113,7 +113,7 @@ instance ResolvesSuccessfully (PrestoStatement RawNames Range) where
          in assertEqual "" resolved resolved
               `catch` \ (AssertionFailed str) -> assertFailure $ unlines [str, show sql]
 
-parsesAndResolvesSuccessfullyPresto :: Catalog -> Text -> Assertion
+parsesAndResolvesSuccessfullyPresto :: CatalogInterpreter -> Text -> Assertion
 parsesAndResolvesSuccessfullyPresto catalog sql = case PP.parse sql of
     (Left e) -> assertFailure $ unlines
         [ "failed to parse:"
@@ -130,7 +130,7 @@ inDefaultDatabase info name = QSchemaName info (pure $ defaultDatabase info) nam
 
 testNoResolveErrors :: Test
 testNoResolveErrors =
-    let defaultSchema = mkNormalSchema "default" ()
+    let defaultSchema = mkNormalSchema @No "default" ()
         currentDatabase = defaultDatabase ()
         catalog = HMS.singleton currentDatabase $ HMS.fromList
             [ ( defaultSchema
@@ -150,12 +150,12 @@ testNoResolveErrors =
 
      in test
         [ "test for regressions on the ambiguous-columns bug (D687922)" ~:
-          map (TestCase . parsesAndResolvesSuccessfullyVertica (makeCatalog catalog path currentDatabase))
+          map (TestCase . parsesAndResolvesSuccessfullyVertica (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT col FROM foo GROUP BY col;"
             ]
 
         , "test that struct-field access resolves in various clauses" ~:
-          map (TestCase . parsesAndResolvesSuccessfullyHive (makeCatalog catalog path currentDatabase))
+          map (TestCase . parsesAndResolvesSuccessfullyHive (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT col.field FROM foo;"  -- SELECT
             , "SELECT * FROM foo WHERE EXISTS (SELECT * FROM bar WHERE col.field = bar.b);" -- SELECT, correlated subquery (bonus points!)
             , "SELECT * FROM foo WHERE col.field > 0;"  --WHERE
@@ -166,7 +166,7 @@ testNoResolveErrors =
             ]
 
         , ticket "T541187" $
-          map (parsesAndResolvesSuccessfullyHive (makeCatalog catalog path currentDatabase))
+          map (parsesAndResolvesSuccessfullyHive (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT * FROM foo LATERAL VIEW explode(col.field) foo;"  -- FROM
             , "SELECT col.field, count(*) FROM foo GROUP BY col.field;" -- GROUP
             , TL.unlines -- HAVING
@@ -181,7 +181,7 @@ testNoResolveErrors =
             ]
 
         , "test that TablishAliasesTC introduce the column aliases correctly" ~:
-          map (TestCase . parsesAndResolvesSuccessfullyPresto (makeCatalog catalog path currentDatabase))
+          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT cAlias FROM foo AS tAlias (cAlias) WHERE cAlias > 10;"
             , "SELECT        cAlias FROM foo AS tAlias (cAlias) ORDER BY        cAlias;"
             , "SELECT        cAlias FROM foo AS tAlias (cAlias) ORDER BY tAlias.cAlias;"
@@ -196,7 +196,7 @@ testNoResolveErrors =
                 ]
             ]
         , "test named window" ~:
-          map (TestCase . parsesAndResolvesSuccessfullyPresto (makeCatalog catalog path currentDatabase))
+          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT sum(col) OVER x FROM foo WINDOW x AS (partition by col);"
             , "SELECT sum(col) OVER (x) FROM foo WINDOW x AS (partition by col);"
             , "SELECT sum(col) OVER (x ORDER BY col) FROM foo WINDOW x AS (partition by col);"
@@ -861,7 +861,7 @@ testResolutionOnASTs = test
         ]
 
     , "test resolution on some tricky queries" ~:
-        [ "SELECT (SELECT foo.x) FROM (SELECT 1 x) foo;" ~: testVertica "TRICKY" (makeCatalog HMS.empty [] (defaultDatabase ()))
+        [ "SELECT (SELECT foo.x) FROM (SELECT 1 x) foo;" ~: testVertica "TRICKY" (runInMemoryCatalog, InMemoryCatalog HMS.empty [] (defaultDatabase ()))
             ( VerticaStandardSqlStatement
                 ( QueryStmt
                     ( QuerySelect 1
@@ -1222,23 +1222,7 @@ testResolutionOnASTs = test
         ]
 
     , "test resolution of Vertica specific queries" ~:
-        [ "ALTER TABLE foo, bar, qux RENAME TO qux, foo, bar;" ~: testVertica "ALTERTABLERENAME" defaultTestCatalog
-            ( VerticaMultipleRenameStatement
-                ( VSQL.MultipleRename 1
-                    [ AlterTableRenameTable 2
-                        ( QTableName 3 Nothing "foo" )
-                        ( QTableName 4 Nothing "qux" )
-                    , AlterTableRenameTable 5
-                        ( QTableName 6 Nothing "bar" )
-                        ( QTableName 7 Nothing "foo" )
-                    , AlterTableRenameTable 8
-                        ( QTableName 9 Nothing "qux" )
-                        ( QTableName 10 Nothing "bar" )
-                    ]
-                )
-            )
-
-        , "CREATE PROJECTION foo_projection AS SELECT * FROM foo SEGMENTED BY HASH(a) ALL NODES KSAFE;" ~: testVertica "CREATEPROJECTION" defaultTestCatalog
+        [ "CREATE PROJECTION foo_projection AS SELECT * FROM foo SEGMENTED BY HASH(a) ALL NODES KSAFE;" ~: testVertica "CREATEPROJECTION" defaultTestCatalog
             ( VerticaCreateProjectionStatement
                 ( VSQL.CreateProjection
                     { createProjectionInfo = 1
@@ -2075,7 +2059,7 @@ testDefaulting = test
         ]
 
     , "test resolution on some tricky queries" ~:
-        [ "SELECT (SELECT foo.x) FROM (SELECT 1 x) foo;" ~: testVertica "TRICKY2" (makeCatalog HMS.empty [] (defaultDatabase ()))
+        [ "SELECT (SELECT foo.x) FROM (SELECT 1 x) foo;" ~: testVertica "TRICKY2" (runInMemoryCatalog, InMemoryCatalog HMS.empty [] (defaultDatabase ()))
             ( VerticaStandardSqlStatement
                 ( QueryStmt
                     ( QuerySelect 1
@@ -2436,23 +2420,7 @@ testDefaulting = test
         ]
 
     , "test resolution of Vertica specific queries" ~:
-        [ "ALTER TABLE foo, bar, qux RENAME TO qux, foo, bar;" ~: testVertica "DEFAULTMISSINGALTERTABLERENAME" defaultDefaultingTestCatalog
-            ( VerticaMultipleRenameStatement
-                ( VSQL.MultipleRename 1
-                    [ AlterTableRenameTable 2
-                        ( QTableName 3 Nothing "foo" )
-                        ( QTableName 4 Nothing "qux" )
-                    , AlterTableRenameTable 5
-                        ( QTableName 6 Nothing "bar" )
-                        ( QTableName 7 Nothing "foo" )
-                    , AlterTableRenameTable 8
-                        ( QTableName 9 Nothing "qux" )
-                        ( QTableName 10 Nothing "bar" )
-                    ]
-                )
-            )
-
-        , "CREATE PROJECTION foo_projection AS SELECT * FROM foo SEGMENTED BY HASH(a) ALL NODES KSAFE;" ~: testVertica "DEFAULTCREATEPROJECTION" defaultDefaultingTestCatalog
+        [ "CREATE PROJECTION foo_projection AS SELECT * FROM foo SEGMENTED BY HASH(a) ALL NODES KSAFE;" ~: testVertica "DEFAULTCREATEPROJECTION" defaultDefaultingTestCatalog
             ( VerticaCreateProjectionStatement
                 ( VSQL.CreateProjection
                     { createProjectionInfo = 1
@@ -2738,9 +2706,9 @@ testDefaulting = test
         ]
     ]
 
-defaultTestCatalog :: Catalog
-defaultTestCatalog = makeCatalog
-    ( HMS.singleton (defaultDatabase ()) $ HMS.fromList
+defaultTestCatalogMap :: CatalogMap
+defaultTestCatalogMap = 
+    HMS.singleton (defaultDatabase ()) $ HMS.fromList
         [ ( mkNormalSchema "public" ()
           , HMS.fromList
             [ ( QTableName () None "foo"
@@ -2771,15 +2739,19 @@ defaultTestCatalog = makeCatalog
           , HMS.empty
           )
         ]
-    )
+
+defaultTestCatalog :: CatalogInterpreter
+defaultTestCatalog = (runInMemoryCatalog, InMemoryCatalog
+    defaultTestCatalogMap
     [ mkNormalSchema "public" () ]
     ( defaultDatabase () )
+    )
 
-defaultDefaultingTestCatalog :: Catalog
-defaultDefaultingTestCatalog = makeDefaultingCatalog (catalogMap defaultTestCatalog) [mkNormalSchema "public" ()] (defaultDatabase ())
+defaultDefaultingTestCatalog :: CatalogInterpreter
+defaultDefaultingTestCatalog = (runInMemoryDefaultingCatalog, InMemoryCatalog defaultTestCatalogMap [mkNormalSchema "public" ()] (defaultDatabase ()))
 
-pathologicalSemiJoinStructAccessorCatalog :: Catalog
-pathologicalSemiJoinStructAccessorCatalog = makeCatalog
+pathologicalSemiJoinStructAccessorCatalog :: CatalogInterpreter
+pathologicalSemiJoinStructAccessorCatalog = (runInMemoryCatalog, InMemoryCatalog
     ( HMS.singleton (defaultDatabase ()) $ HMS.fromList
         [ ( mkNormalSchema "public" ()
           , HMS.fromList
@@ -2800,6 +2772,7 @@ pathologicalSemiJoinStructAccessorCatalog = makeCatalog
     )
     defaultTestPath
     (defaultDatabase ())
+    )
 
 tests :: Test
 tests = test [ testResolutionOnASTs

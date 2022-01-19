@@ -47,6 +47,8 @@ import qualified Data.Map as M
 import Data.Data (Data)
 import GHC.Generics (Generic)
 
+import Polysemy
+
 data Presto
 
 deriving instance Data Presto
@@ -94,7 +96,9 @@ instance HasColumnLineage (PrestoStatement ResolvedNames Range) where
     getColumnLineage (PrestoStandardSqlStatement stmt) = columnLineage stmt
     getColumnLineage (PrestoUnhandledStatement _) = returnNothing M.empty
 
-resolvePrestoStatement :: PrestoStatement RawNames a -> Resolver (PrestoStatement ResolvedNames) a
+resolvePrestoStatement 
+    :: (Members (ResolverEff a) r)
+    => PrestoStatement RawNames a -> Sem r (PrestoStatement ResolvedNames a)
 resolvePrestoStatement (PrestoStandardSqlStatement stmt) =
     PrestoStandardSqlStatement <$> resolveStatement stmt
 resolvePrestoStatement (PrestoUnhandledStatement info) = pure $ PrestoUnhandledStatement info

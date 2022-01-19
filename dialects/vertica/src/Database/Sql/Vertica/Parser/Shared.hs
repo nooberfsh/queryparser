@@ -121,6 +121,15 @@ unqualifiedTableNameP = do
     (t, r) <- Tok.tableNameP
     return $ QTableName r None t
 
+fullyQualifiedTableNameP :: Parser (Text, Text, Text, Range, Range, Range)
+fullyQualifiedTableNameP = do
+    (d, r) <- Tok.databaseNameP
+    _ <- Tok.dotP
+    (s, r') <- Tok.schemaNameP
+    _ <- Tok.dotP
+    (t, r'') <- Tok.tableNameP
+
+    return (d, s, t, r, r', r'')
 
 qualifiedTableNameP :: Parser (Text, Text, Range, Range)
 qualifiedTableNameP = do
@@ -134,14 +143,38 @@ qualifiedTableNameP = do
 tableNameP :: Parser (TableRef RawNames Range)
 tableNameP = choice
     [ try $ do
+        (d, s, t, r, r', r'') <- fullyQualifiedTableNameP
+        let databaseName = DatabaseName r d
+            schemaName = QSchemaName (r <> r') (Just databaseName) s NormalSchema
+        return $ QTableName (r <> r'') (Just schemaName) t
+    , try $ do
         (s, t, r, r') <- qualifiedTableNameP
-        return $ QTableName r' (Just $ mkNormalSchema s r) t
-
+        return $ QTableName (r <> r') (Just $ mkNormalSchema s r) t
     , do
         (t, r) <- Tok.tableNameP
         return $ QTableName r Nothing t
     ]
 
+qualifiedSchemaNameP :: Parser (Text, Text, Range, Range)
+qualifiedSchemaNameP = do
+    (d, r) <- Tok.databaseNameP
+    _ <- Tok.dotP
+    (s, r') <- Tok.schemaNameP
+
+    return (d, s, r, r')
+
+
+schemaNameP :: Parser (SchemaName RawNames Range, Range)
+schemaNameP = choice
+    [ try $ do
+        (d, s, r, r') <- qualifiedSchemaNameP
+        let databaseName = DatabaseName r d
+            r'' = r <> r'
+        return (QSchemaName r'' (Just databaseName) s NormalSchema, r'')
+    , do
+        (s, r) <- Tok.schemaNameP
+        return (mkNormalSchema s r, r)
+    ]
 
 projectionNameP :: Parser (ProjectionName Range)
 projectionNameP = choice

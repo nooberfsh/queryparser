@@ -63,7 +63,6 @@ type ConstrainSNames (c :: * -> Constraint) r a =
     , c (CreateTableName r a)
     , c (DropTableName r a)
     , c (SchemaName r a)
-    , c (CreateSchemaName r a)
     , c (ColumnRef r a)
     , c (NaturalColumns r a)
     , c (UsingColumn r a)
@@ -78,7 +77,6 @@ type ConstrainSASNames (c :: (* -> *) -> Constraint) r =
     , c (CreateTableName r)
     , c (DropTableName r)
     , c (SchemaName r)
-    , c (CreateSchemaName r)
     , c (ColumnRef r)
     , c (NaturalColumns r)
     , c (UsingColumn r)
@@ -107,11 +105,6 @@ class Resolution r where
 
     -- | SchemaName refers to a schema in the catalog
     type SchemaName r :: * -> *
-
-    -- | CreateSchemaName refers to a table that might be in the catalog
-    --
-    -- Used for CREATE SCHEMA, special rules for resolution
-    type CreateSchemaName r :: * -> *
 
     -- | ColumnRef refers to either a column in the catalog, or an alias
     type ColumnRef r :: * -> *
@@ -177,6 +170,12 @@ deriving instance (Show a, Show (f (DatabaseName a))) => Show (QSchemaName f a)
 type UQSchemaName = QSchemaName No
 type OQSchemaName = QSchemaName Maybe
 type FQSchemaName = QSchemaName Identity
+
+fqsnToOqsn :: FQSchemaName a -> OQSchemaName a
+fqsnToOqsn QSchemaName {schemaNameDatabase = Identity db, ..} = QSchemaName {schemaNameDatabase = Just db, ..}
+
+fqsnToUqsn :: FQSchemaName a -> UQSchemaName a
+fqsnToUqsn QSchemaName {..} = QSchemaName {schemaNameDatabase = None, ..}
 
 mkNormalSchema :: Alternative f => Text -> a -> QSchemaName f a
 mkNormalSchema name info = QSchemaName info empty name NormalSchema
@@ -292,6 +291,12 @@ instance Alternative No where
 type UQTableName = QTableName No
 type OQTableName = QTableName Maybe
 type FQTableName = QTableName Identity
+
+fqtnToOqtn :: FQTableName a -> OQTableName a
+fqtnToOqtn QTableName {tableNameSchema = Identity fqsn, ..} = QTableName {tableNameSchema = Just $ fqsnToOqsn fqsn, ..}
+
+fqtnToUqtn :: FQTableName a -> UQTableName a
+fqtnToUqtn QTableName {..} = QTableName {tableNameSchema = None, ..}
 
 newtype TableAliasId
     = TableAliasId Integer

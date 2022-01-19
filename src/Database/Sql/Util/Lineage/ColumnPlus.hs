@@ -311,28 +311,27 @@ columnLineage (TruncateStmt (Truncate _ (RTableName tableName SchemaMember{viewQ
         let columns = map (qualifyColumnName tableName) columnsList
          in truncateTableLineage tableName columns
 
-columnLineage (CreateTableStmt CreateTable{createTableName = RCreateTableName _ Exists}) = returnNothing M.empty
-columnLineage (CreateTableStmt CreateTable{createTableName = RCreateTableName tableName DoesNotExist, ..}) =
+columnLineage (CreateTableStmt CreateTable{..}) =
     returnNothing $
         case createTableDefinition of
             TableColumns _ (c:|cs) ->
-                M.insert (Left $ fqtnToFQTN tableName) emptyColumnPlusSet
+                M.insert (Left $ fqtnToFQTN createTableName) emptyColumnPlusSet
                     $ emptyLineage $ (`mapMaybe` (c:cs)) $ \case
                         ColumnOrConstraintConstraint _ -> Nothing
-                        ColumnOrConstraintColumn ColumnDefinition{..} -> Just $ qualifyColumnName tableName columnDefinitionName
+                        ColumnOrConstraintColumn ColumnDefinition{..} -> Just $ qualifyColumnName createTableName columnDefinitionName
             TableLike _ (RTableName _ SchemaMember{..}) ->
-                M.insert (Left $ fqtnToFQTN tableName) emptyColumnPlusSet
-                    $ emptyLineage $ map (qualifyColumnName tableName) columnsList
+                M.insert (Left $ fqtnToFQTN createTableName) emptyColumnPlusSet
+                    $ emptyLineage $ map (qualifyColumnName createTableName) columnsList
             TableAs _ maybeColumns query -> case runEval (eval (Proxy :: Proxy ColumnLineage) query) ancestorsForTableName of
                 Left err -> error $ "failed to evaluate column lineage for create table statement: " ++ err
                 Right RecordSet{..} ->
                     let columns = maybe queryColumns proc maybeColumns
-                        proc = map (qualifyColumnName tableName) . toList
-                        queryColumns = map (qualifyColumnName tableName . resolvedColumnName) recordSetLabels
+                        proc = map (qualifyColumnName createTableName) . toList
+                        queryColumns = map (qualifyColumnName createTableName . resolvedColumnName) recordSetLabels
                         resolvedColumnName (RColumnRef fqtn) = fqtn{columnNameTable = None}
                         resolvedColumnName (RColumnAlias (ColumnAlias _ name _)) = QColumnName () None name
                         (columnsLineage, tableLineage) = runWriter recordSetItems
-                     in M.insert (Left $ fqtnToFQTN tableName) tableLineage $ M.fromList $ zip (map (Right . fqcnToFQCN) columns) columnsLineage
+                     in M.insert (Left $ fqtnToFQTN createTableName) tableLineage $ M.fromList $ zip (map (Right . fqcnToFQCN) columns) columnsLineage
             TableNoColumnInfo _ -> M.empty
 
 columnLineage (DropTableStmt DropTable{dropTableNames = tables}) =

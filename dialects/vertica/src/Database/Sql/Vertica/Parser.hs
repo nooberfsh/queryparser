@@ -387,8 +387,7 @@ createSchemaP = do
     s <- createSchemaPrefixP
     createSchemaIfNotExists <- ifNotExistsP
 
-    (name, r) <- Tok.schemaNameP
-    let createSchemaName = mkNormalSchema name r
+    (createSchemaName, r) <- schemaNameP
 
     e <- option r (Tok.authorizationP >> snd <$> Tok.userNameP)
     let createSchemaInfo = s <> e
@@ -1173,10 +1172,10 @@ functionExprP = choice
     regularFuncP = do
         name <- choice
             [ try $ do
-                (s, r) <- Tok.schemaNameP
+                (s, r) <- schemaNameP
                 _ <- Tok.dotP
                 (f, r') <- Tok.functionNameP
-                return $ QFunctionName (r <> r') (Just $ mkNormalSchema s r) f
+                return $ QFunctionName (r <> r') (Just s) f
 
             , do
                 (f, r) <- Tok.functionNameP
@@ -1952,11 +1951,11 @@ setSchemaP = do
     _ <- Tok.setP
     _ <- Tok.schemaP
 
-    (schema, r) <- Tok.schemaNameP
+    (schema, r) <- schemaNameP
 
     e <- option r $ choice [Tok.restrictP, Tok.cascadeP]
 
-    pure $ SetSchema (s <> e) table $ mkNormalSchema schema r
+    pure $ SetSchema (s <> e) table schema
 
 
 renameProjectionP :: Parser Range

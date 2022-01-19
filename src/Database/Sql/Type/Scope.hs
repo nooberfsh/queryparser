@@ -27,6 +27,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# Language TemplateHaskell #-}
 
 module Database.Sql.Type.Scope where
 
@@ -36,10 +37,6 @@ import Database.Sql.Type.Unused
 import Database.Sql.Type.Query
 
 import Control.Monad.Identity
-import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.Except
-import Control.Monad.Writer
 
 import           Data.Aeson
 import qualified Data.HashMap.Strict as HMS
@@ -53,6 +50,11 @@ import Test.QuickCheck
 import Data.Data (Data)
 import GHC.Generics (Generic)
 
+import Polysemy
+import qualified Polysemy.Error as PE
+import qualified Polysemy.Writer as PW
+import qualified Polysemy.State as PS
+import qualified Polysemy.Reader as PR
 
 -- | A ColumnSet records the table-bindings (if any) of columns.
 --
@@ -75,20 +77,21 @@ data Bindings a = Bindings
 emptyBindings :: Bindings a
 emptyBindings = Bindings [] []
 
+type BindForClause a = forall r s . Member (PR.Reader (ResolverInfo a)) r => Sem r s -> Sem r s
+
 data SelectScope a = SelectScope
-    { bindForHaving :: forall r m . MonadReader (ResolverInfo a) m => m r -> m r
-    , bindForWhere :: forall r m . MonadReader (ResolverInfo a) m => m r -> m r
-    , bindForOrder :: forall r m . MonadReader (ResolverInfo a) m => m r -> m r
-    , bindForGroup :: forall r m . MonadReader (ResolverInfo a) m => m r -> m r
-    , bindForNamedWindow :: forall r m . MonadReader (ResolverInfo a) m => m r -> m r
+    { bindForHaving :: BindForClause a
+    , bindForWhere :: BindForClause a
+    , bindForOrder :: BindForClause a
+    , bindForGroup :: BindForClause a
+    , bindForNamedWindow :: BindForClause a
     }
 
 type FromColumns a = ColumnSet a
 type SelectionAliases a = [RColumnRef a]
 
 data ResolverInfo a = ResolverInfo
-    { catalog :: Catalog
-    , onCTECollision :: forall x . (x -> x) -> (x -> x)
+    { onCTECollision :: forall x . (x -> x) -> (x -> x)
     , bindings :: Bindings a
     , lambdaScope :: [[LambdaParam a]]
     , selectScope :: FromColumns a -> SelectionAliases a -> SelectScope a
@@ -99,19 +102,19 @@ mapBindings :: (Bindings a -> Bindings a) -> ResolverInfo a -> ResolverInfo a
 mapBindings f ResolverInfo{..} = ResolverInfo{bindings = f bindings, ..}
 
 
-bindColumns :: MonadReader (ResolverInfo a) m => ColumnSet a -> m r -> m r
-bindColumns columns = local (mapBindings $ \ Bindings{..} -> Bindings{boundColumns = columns ++ boundColumns, ..})
+bindColumns :: Member (PR.Reader (ResolverInfo a)) r => ColumnSet a -> Sem r s -> Sem r s
+bindColumns columns = PR.local (mapBindings $ \ Bindings{..} -> Bindings{boundColumns = columns ++ boundColumns, ..})
 
-bindLambdaParams :: MonadReader (ResolverInfo a) m => [LambdaParam a] -> m r -> m r
-bindLambdaParams params = local (\ResolverInfo{..} -> ResolverInfo{lambdaScope = params:lambdaScope, ..})
+bindLambdaParams :: Member (PR.Reader (ResolverInfo a)) r => [LambdaParam a] -> Sem r s -> Sem r s
+bindLambdaParams params = PR.local (\ResolverInfo{..} -> ResolverInfo{lambdaScope = params:lambdaScope, ..})
 
-bindFromColumns :: MonadReader (ResolverInfo a) m => FromColumns a -> m r -> m r
+bindFromColumns :: Member (PR.Reader (ResolverInfo a)) r => FromColumns a -> Sem r s -> Sem r s
 bindFromColumns = bindColumns
 
-bindAliasedColumns :: MonadReader (ResolverInfo a) m => SelectionAliases a -> m r -> m r
+bindAliasedColumns :: Member (PR.Reader (ResolverInfo a)) r => SelectionAliases a -> Sem r s -> Sem r s
 bindAliasedColumns selectionAliases = bindColumns [(Nothing, selectionAliases)]
 
-bindBothColumns :: MonadReader (ResolverInfo a) m => FromColumns a -> SelectionAliases a -> m r -> m r
+bindBothColumns :: Member (PR.Reader (ResolverInfo a)) r => FromColumns a -> SelectionAliases a -> Sem r s -> Sem r s
 bindBothColumns fromColumns selectionAliases = bindColumns $ (Nothing, onlyNewAliases selectionAliases) : fromColumns
   where
     onlyNewAliases = filter $ \case
@@ -131,7 +134,6 @@ instance Resolution RawNames where
     type CreateTableName RawNames = OQTableName
     type DropTableName RawNames = OQTableName
     type SchemaName RawNames = OQSchemaName
-    type CreateSchemaName RawNames = OQSchemaName
     type ColumnRef RawNames = OQColumnName
     type NaturalColumns RawNames = Unused
     type UsingColumn RawNames = UQColumnName
@@ -150,10 +152,9 @@ newtype ColumnAliasList a = ColumnAliasList [ColumnAlias a]
 instance Resolution ResolvedNames where
     type TableRef ResolvedNames = RTableRef
     type TableName ResolvedNames = RTableName
-    type CreateTableName ResolvedNames = RCreateTableName
+    type CreateTableName ResolvedNames = FQTableName
     type DropTableName ResolvedNames = RDropTableName
     type SchemaName ResolvedNames = FQSchemaName
-    type CreateSchemaName ResolvedNames = RCreateSchemaName
     type ColumnRef ResolvedNames = RColumnRef
     type NaturalColumns ResolvedNames = RNaturalColumns
     type UsingColumn ResolvedNames = RUsingColumn
@@ -161,12 +162,13 @@ instance Resolution ResolvedNames where
     type PositionExpr ResolvedNames = Expr ResolvedNames
     type ComposedQueryColumns ResolvedNames = ColumnAliasList
 
-type Resolver r a =
-    StateT Integer  -- column alias generation (counts down from -1, unlike parse phase)
-        (ReaderT (ResolverInfo a)
-            (CatalogObjectResolver a))
-               (r a)
-
+type ResolverEff a = 
+    [ Catalog a
+    , PE.Error (ResolutionError a)
+    , PR.Reader (ResolverInfo a)
+    , PW.Writer [Either (ResolutionError a) (ResolutionSuccess a)]
+    , PS.State Integer -- column alias generation (counts down from -1, unlike parse phase)
+    ] 
 
 data SchemaMember = SchemaMember
     { tableType :: TableType
@@ -185,33 +187,43 @@ type CatalogMap = HashMap (DatabaseName ()) DatabaseMap
 type Path = [UQSchemaName ()]
 type CurrentDatabase = DatabaseName ()
 
-data Catalog = Catalog
-    { catalogResolveSchemaName :: forall a . OQSchemaName a -> CatalogObjectResolver a (FQSchemaName a)
-    , catalogResolveTableName :: forall a . OQTableName a -> CatalogObjectResolver a (RTableName a)
-    , catalogHasDatabase :: DatabaseName () -> Existence
-    , catalogHasSchema :: UQSchemaName () -> Existence
-    , catalogHasTable :: UQTableName () -> Existence  -- | nb DoesNotExist does not imply that we can't resolve to this name (defaulting)
-    , catalogResolveTableRef :: forall a . [(TableAlias a, [RColumnRef a])] -> OQTableName a -> CatalogObjectResolver a (WithColumns RTableRef a)
-    , catalogResolveCreateSchemaName :: forall a . OQSchemaName a -> CatalogObjectResolver a (RCreateSchemaName a)
-    , catalogResolveCreateTableName :: forall a . OQTableName a -> CatalogObjectResolver a (RCreateTableName a)
-    , catalogResolveColumnName :: forall a . [(Maybe (RTableRef a), [RColumnRef a])] -> OQColumnName a -> CatalogObjectResolver a (RColumnRef a)
-    , overCatalogMap :: forall a . (CatalogMap -> (CatalogMap, a)) -> (Catalog, a)
-    , catalogMap :: !CatalogMap
-    , catalogWithPath :: Path -> Catalog
-    , catalogWithDatabase :: CurrentDatabase -> Catalog
+data InMemoryCatalog = InMemoryCatalog
+    { catalog :: CatalogMap
+    , path :: Path
+    , currentDb :: CurrentDatabase
     }
+    deriving (Show, Eq)
 
-instance Eq Catalog where
-    x == y = catalogMap x == catalogMap y
+inCurrentDb :: Applicative g => QSchemaName f a -> CurrentDatabase -> QSchemaName g a
+inCurrentDb (QSchemaName sInfo _ schemaName schemaType) currentDb =
+    let db = fmap (const sInfo) currentDb
+     in QSchemaName sInfo (pure db) schemaName schemaType
 
-instance Show Catalog where
-    show = show . catalogMap
+inHeadOfPath :: Applicative g => QTableName f a -> Path -> CurrentDatabase -> QTableName g a
+inHeadOfPath (QTableName tInfo _ tableName) path currentDb =
+    let db = fmap (const tInfo) currentDb
+        QSchemaName _ None schemaName schemaType = head path
+        fqsn = QSchemaName tInfo (pure db) schemaName schemaType
+     in QTableName tInfo (pure fqsn) tableName
 
+data Catalog i m a where
+    CatalogResolveSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
+    CatalogResolveTableName :: OQTableName i -> Catalog i m (RTableName i)
+    CatalogHasTable :: UQTableName () -> Catalog i m Existence  -- | nb DoesNotExist does not imply that we can't resolve to this name (defaulting)
+    CatalogResolveCreateSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
+    CatalogResolveCreateTableName :: OQTableName i -> Catalog i m (FQTableName i)
+    CatalogResolveColumnName :: [(Maybe (RTableRef i), [RColumnRef i])] -> OQColumnName i -> Catalog i m (RColumnRef i)
+    -- | apply schema changes TODO: add tests
+    CatalogResolveCreateSchema :: FQSchemaName i -> Bool -> Catalog i m ()
+    CatalogResolveCreateTable :: RTableName i -> Bool -> Catalog i m ()
+    CatalogResolveDropTable :: OQTableName i -> Bool -> Catalog i m (RDropTableName i)
 
--- returned by methods in Catalog
-type CatalogObjectResolver a =
-    (ExceptT (ResolutionError a)  -- error
-        (Writer [Either (ResolutionError a) (ResolutionSuccess a)])) -- warnings and successes
+type CatalogEff a = 
+    [ PE.Error (ResolutionError a) -- error
+    , PW.Writer [Either (ResolutionError a) (ResolutionSuccess a)] -- warnings and successes
+    ]
+
+type CatalogInterpreter = forall i r a. (Members (CatalogEff i) r) => (Sem (Catalog i : r) a -> Sem (PS.State InMemoryCatalog : r) a, InMemoryCatalog)
 
 data ResolutionError a
     = MissingDatabase (DatabaseName a)
@@ -231,8 +243,6 @@ data ResolutionError a
 data ResolutionSuccess a
     = TableNameResolved (OQTableName a) (RTableName a)
     | TableNameDefaulted (OQTableName a) (RTableName a)
-    | CreateTableNameResolved (OQTableName a) (RCreateTableName a)
-    | CreateSchemaNameResolved (OQSchemaName a) (RCreateSchemaName a)
     | TableRefResolved (OQTableName a) (RTableRef a)
     | TableRefDefaulted (OQTableName a) (RTableRef a)
     | ColumnRefResolved (OQColumnName a) (RColumnRef a)
@@ -242,8 +252,6 @@ data ResolutionSuccess a
 isGuess :: ResolutionSuccess a -> Bool
 isGuess (TableNameResolved _ _) = False
 isGuess (TableNameDefaulted _ _) = True
-isGuess (CreateTableNameResolved _ _) = False
-isGuess (CreateSchemaNameResolved _ _) = False
 isGuess (TableRefResolved _ _) = False
 isGuess (TableRefDefaulted _ _) = True
 isGuess (ColumnRefResolved _ _) = False
@@ -296,12 +304,6 @@ data RDropTableName a
     = RDropExistingTableName (FQTableName a) SchemaMember
     | RDropMissingTableName (OQTableName a)
       deriving (Generic, Data, Eq, Ord, Show, Functor, Foldable, Traversable)
-
-data RCreateTableName a = RCreateTableName (FQTableName a) Existence
-                          deriving (Generic, Data, Eq, Ord, Show, Functor, Foldable, Traversable)
-
-data RCreateSchemaName a = RCreateSchemaName (FQSchemaName a) Existence
-                           deriving (Generic, Data, Eq, Ord, Show, Functor, Foldable, Traversable)
 
 
 instance Arbitrary SchemaMember where
@@ -356,20 +358,6 @@ instance ToJSON a => ToJSON (RDropTableName a) where
         , "oqtn" .= oqtn
         ]
 
-instance ToJSON a => ToJSON (RCreateTableName a) where
-    toJSON (RCreateTableName fqtn existence) = object
-        [ "tag" .= String "RCreateTableName"
-        , "fqtn" .= fqtn
-        , "existence" .= existence
-        ]
-
-instance ToJSON a => ToJSON (RCreateSchemaName a) where
-    toJSON (RCreateSchemaName fqsn existence) = object
-        [ "tag" .= String "RCreateSchemaName"
-        , "fqsn" .= fqsn
-        , "existence" .= existence
-        ]
-
 instance ToJSON a => ToJSON (StarColumnNames a) where
     toJSON (StarColumnNames cols) = object
         [ "tag" .= String "StarColumnNames"
@@ -381,3 +369,5 @@ instance ToJSON a => ToJSON (ColumnAliasList a) where
         [ "tag" .= String "ColumnAliasList"
         , "cols" .= cols
         ]
+
+makeSem ''Catalog

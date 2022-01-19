@@ -112,13 +112,13 @@ tableLineage (DeleteStmt (Delete _ (RTableName table _) maybeExpr)) = case maybe
 tableLineage (TruncateStmt (Truncate _ (RTableName table _))) =
     M.singleton (mkFQTN table) S.empty
 
-tableLineage (CreateTableStmt CreateTable{createTableName = RCreateTableName tableName _, ..}) = case createTableDefinition of
+tableLineage (CreateTableStmt CreateTable{..}) = case createTableDefinition of
     TableColumns _ _ -> emptyLineage fqtn
     TableLike _ _ -> emptyLineage fqtn
     TableAs _ _ query -> M.singleton fqtn $ getTables query
     TableNoColumnInfo _ -> emptyLineage fqtn
   where
-    fqtn = mkFQTN tableName
+    fqtn = mkFQTN createTableName
 
 tableLineage (DropTableStmt DropTable{dropTableNames = tables}) =
     F.foldl' (\acc v ->

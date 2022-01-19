@@ -5,7 +5,6 @@
 module Demo
     ( parse
     , parseAndResolve
-    , catalog
     , demoTablesAccessed
     , demoColumnsAccessedByClause
     , demoJoins
@@ -13,12 +12,12 @@ module Demo
     , demoAllAnalyses
     ) where
 
-import Database.Sql.Type hiding (catalog)
+import Database.Sql.Type
 
-import           Database.Sql.Util.Scope (runResolverWarn)
 import qualified Database.Sql.Vertica.Parser as VP
 import           Database.Sql.Vertica.Type (VerticaStatement, resolveVerticaStatement, Vertica)
 
+import Database.Sql.Util.Scope (runResolverWarn)
 import Database.Sql.Util.Tables
 import Database.Sql.Util.Columns
 import Database.Sql.Util.Joins
@@ -39,7 +38,6 @@ import Data.Semigroup
 
 import Text.PrettyPrint (Doc, hcat, hsep, nest, text, vcat)
 
-
 -- let's provide a really simple function to do parsing!
 -- It will have ungraceful error handling.
 parse :: TL.Text -> VerticaStatement RawNames ()
@@ -47,9 +45,13 @@ parse sql = case void <$> VP.parse sql of
     Right q -> q
     Left err -> error $ show err
 
+
+runResolver:: VerticaStatement RawNames a -> (Either (ResolutionError a) (VerticaStatement ResolvedNames a), [Either (ResolutionError a) (ResolutionSuccess a)])
+runResolver raw = runResolverWarn (resolveVerticaStatement raw) (Proxy :: Proxy Vertica) catalogInterpreter
+
 -- and construct a catalog, with tables `foo` (columns a, b, and c) and `bar` (columns x, y, and z)
-catalog :: Catalog
-catalog = makeDefaultingCatalog catalogMap [defaultSchema] defaultDatabase
+catalogInterpreter  :: CatalogInterpreter
+catalogInterpreter = (runInMemoryDefaultingCatalog, InMemoryCatalog catalogMap [defaultSchema] defaultDatabase)
   where
     defaultDatabase :: DatabaseName ()
     defaultDatabase = DatabaseName () "defaultDatabase"
@@ -76,7 +78,7 @@ catalog = makeDefaultingCatalog catalogMap [defaultSchema] defaultDatabase
 -- let's provide a really simple function that combines parsing + resolving.
 -- We'll hardcode the catalog and leave the error handling ungraceful, still.
 parseAndResolve :: TL.Text -> (VerticaStatement ResolvedNames (), [ResolutionError ()])
-parseAndResolve sql = case runResolverWarn (resolveVerticaStatement $ parse sql) (Proxy :: Proxy Vertica) catalog of
+parseAndResolve sql = case runResolver (parse sql) of
     (Right queryResolved, resolutions) -> (queryResolved, lefts resolutions)
     (Left err, _) -> error $ show err
 

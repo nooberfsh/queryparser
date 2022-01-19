@@ -44,13 +44,13 @@ instance Test.TestableAnalysis HasColumnLineage a where
     type TestResult HasColumnLineage a = ColumnLineagePlus
     runTest _ _ = snd . getColumnLineage
 
-testHive :: TL.Text -> Catalog -> (ColumnLineagePlus -> Assertion) -> [Assertion]
+testHive :: TL.Text -> CatalogInterpreter -> (ColumnLineagePlus -> Assertion) -> [Assertion]
 testHive = Test.testResolvedHive (Proxy :: Proxy HasColumnLineage)
 
-testVertica :: TL.Text -> Catalog -> (ColumnLineagePlus -> Assertion) -> [Assertion]
+testVertica :: TL.Text -> CatalogInterpreter -> (ColumnLineagePlus -> Assertion) -> [Assertion]
 testVertica = Test.testResolvedVertica (Proxy :: Proxy HasColumnLineage)
 
-testAll :: TL.Text -> Catalog -> (ColumnLineagePlus -> Assertion) -> [Assertion]
+testAll :: TL.Text -> CatalogInterpreter -> (ColumnLineagePlus -> Assertion) -> [Assertion]
 testAll = Test.testResolvedAll (Proxy :: Proxy HasColumnLineage)
 
 
@@ -391,51 +391,6 @@ testColumnLineage = test
         , testVertica "ALTER PROJECTION foo RENAME TO bar;" defaultTestCatalog (@?= M.empty)
 
         , testAll "GRANT SELECT ON foo TO bar;" defaultTestCatalog (@?= M.empty)
-        , testVertica "ALTER TABLE foo, foo1, bar RENAME TO foo1, foo2, baz;" defaultTestCatalog
-            (@?= M.fromList
-                [ ( Left $ FullyQualifiedTableName "default_db" "public" "bar"
-                  , emptyColumnPlusSet
-                  )
-                , ( Right $ FullyQualifiedColumnName "default_db" "public" "bar" "a"
-                  , emptyColumnPlusSet
-                  )
-                , ( Right $ FullyQualifiedColumnName "default_db" "public" "bar" "b"
-                  , emptyColumnPlusSet
-                  )
-                , ( Left $ FullyQualifiedTableName "default_db" "public" "baz"
-                  , singleTableSet Range{start = Position 1 23 23, end = Position 1 26 26}
-                      $ FullyQualifiedTableName "default_db" "public" "bar"
-                  )
-                , ( Right $ FullyQualifiedColumnName "default_db" "public" "baz" "a"
-                  , singleColumnSet Range{start = Position 1 23 23, end = Position 1 26 26}
-                      $ FullyQualifiedColumnName "default_db" "public" "bar" "a"
-                  )
-                , ( Right $ FullyQualifiedColumnName "default_db" "public" "baz" "b"
-                  , singleColumnSet Range{start = Position 1 23 23, end = Position 1 26 26}
-                      $ FullyQualifiedColumnName "default_db" "public" "bar" "b"
-                  )
-                , ( Left $ FullyQualifiedTableName "default_db" "public" "foo"
-                  , emptyColumnPlusSet
-                  )
-                , ( Right $ FullyQualifiedColumnName "default_db" "public" "foo" "a"
-                  , emptyColumnPlusSet
-                  )
-                , ( Right $ FullyQualifiedColumnName "default_db" "public" "foo1" "a"
-                  , emptyColumnPlusSet
-                  )
-                , ( Left $ FullyQualifiedTableName "default_db" "public" "foo1"
-                  , emptyColumnPlusSet
-                  )
-                , ( Left $ FullyQualifiedTableName "default_db" "public" "foo2"
-                  , singleTableSet Range{start = Position 1 12 12, end = Position 1 15 15}
-                      $ FullyQualifiedTableName "default_db" "public" "foo"
-                  )
-                , ( Right $ FullyQualifiedColumnName "default_db" "public" "foo2" "a"
-                  , singleColumnSet Range{start = Position 1 12 12, end = Position 1 15 15}
-                      $ FullyQualifiedColumnName "default_db" "public" "foo" "a"
-                  )
-                ]
-            )
         , testHive "INSERT OVERWRITE TABLE foo SELECT a FROM bar;" defaultTestCatalog
           (@?= M.fromList
               [ ( Left $ FullyQualifiedTableName "default_db" "public" "foo"
@@ -513,8 +468,8 @@ defaultDatabase = DatabaseName () "default_db"
 publicSchema :: UQSchemaName ()
 publicSchema = mkNormalSchema "public" ()
 
-defaultTestCatalog :: Catalog
-defaultTestCatalog = makeCatalog (mkCatalog defaultCatalogProxy) [publicSchema] defaultDatabase
+defaultTestCatalog :: CatalogInterpreter
+defaultTestCatalog = (runInMemoryCatalog, InMemoryCatalog (mkCatalog defaultCatalogProxy) [publicSchema] defaultDatabase)
 
 tests :: Test
 tests = test [ testColumnLineage ]

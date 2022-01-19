@@ -43,21 +43,20 @@ import           Database.Sql.Type
 
 import           Control.Arrow (first)
 
-
 instance Test.TestableAnalysis HasColumns a where
     type TestResult HasColumns a = Set ColumnAccess
     runTest _ _ = getColumns
 
-testHive :: TL.Text -> Catalog -> (Set ColumnAccess -> Assertion) -> [Assertion]
+testHive :: TL.Text -> CatalogInterpreter -> (Set ColumnAccess -> Assertion) -> [Assertion]
 testHive = Test.testResolvedHive (Proxy :: Proxy HasColumns)
 
-testVertica :: TL.Text -> Catalog -> (Set ColumnAccess -> Assertion) -> [Assertion]
+testVertica :: TL.Text -> CatalogInterpreter -> (Set ColumnAccess -> Assertion) -> [Assertion]
 testVertica = Test.testResolvedVertica (Proxy :: Proxy HasColumns)
 
-testPresto :: TL.Text -> Catalog -> (Set ColumnAccess -> Assertion) -> [Assertion]
+testPresto :: TL.Text -> CatalogInterpreter -> (Set ColumnAccess -> Assertion) -> [Assertion]
 testPresto = Test.testResolvedPresto (Proxy :: Proxy HasColumns)
 
-testAll :: TL.Text -> Catalog -> (Set ColumnAccess -> Assertion) -> [Assertion]
+testAll :: TL.Text -> CatalogInterpreter -> (Set ColumnAccess -> Assertion) -> [Assertion]
 testAll = Test.testResolvedAll (Proxy :: Proxy HasColumns)
 
 
@@ -366,7 +365,8 @@ testColumnAccesses = test
                                  ]
                                )
                              ]
-              specialCatalog = makeCatalog catalogMap [publicSchema] defaultDatabase
+              specialCatalog :: CatalogInterpreter
+              specialCatalog = (runInMemoryCatalog, InMemoryCatalog catalogMap [publicSchema] defaultDatabase)
               query = TL.unlines
                 [ "SELECT x.col1a, c.col4"
                 , "FROM ("
@@ -435,8 +435,8 @@ defaultDatabase = DatabaseName () "default_db"
 publicSchema :: UQSchemaName ()
 publicSchema = mkNormalSchema "public" ()
 
-defaultTestCatalog :: Catalog
-defaultTestCatalog = makeCatalog
+defaultTestCatalog :: CatalogInterpreter
+defaultTestCatalog = (runInMemoryCatalog, InMemoryCatalog
     ( HMS.singleton defaultDatabase $ HMS.fromList
         [ ( publicSchema
           , HMS.fromList
@@ -455,6 +455,7 @@ defaultTestCatalog = makeCatalog
     )
     [ publicSchema ]
     defaultDatabase
+    )
 
 tests :: Test
 tests = test [ testColumnAccesses ]

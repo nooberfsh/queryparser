@@ -18,16 +18,16 @@ instance Test.TestableAnalysis HasTables a where
     type TestResult HasTables a = Set TableUse
     runTest _ _ = getUsages
 
-testHive :: TL.Text -> Catalog -> (Set TableUse -> Assertion) -> [Assertion]
+testHive :: TL.Text -> CatalogInterpreter -> (Set TableUse -> Assertion) -> [Assertion]
 testHive = Test.testResolvedHive (Proxy :: Proxy HasTables)
 
-testVertica :: TL.Text -> Catalog -> (Set TableUse -> Assertion) -> [Assertion]
+testVertica :: TL.Text -> CatalogInterpreter -> (Set TableUse -> Assertion) -> [Assertion]
 testVertica = Test.testResolvedVertica (Proxy :: Proxy HasTables)
 
-testPresto :: TL.Text -> Catalog -> (Set TableUse -> Assertion) -> [Assertion]
+testPresto :: TL.Text -> CatalogInterpreter -> (Set TableUse -> Assertion) -> [Assertion]
 testPresto = Test.testResolvedPresto (Proxy :: Proxy HasTables)
 
-testAll :: TL.Text -> Catalog -> (Set TableUse -> Assertion) -> [Assertion]
+testAll :: TL.Text -> CatalogInterpreter -> (Set TableUse -> Assertion) -> [Assertion]
 testAll = Test.testResolvedAll (Proxy :: Proxy HasTables)
 
 tu :: UsageMode -> TL.Text -> TL.Text -> TL.Text -> TableUse
@@ -174,8 +174,8 @@ publicSchema = mkNormalSchema "public" ()
 tempSchema :: UQSchemaName ()
 tempSchema = mkNormalSchema "temp" ()
 
-defaultTestCatalog :: Catalog
-defaultTestCatalog = makeCatalog
+defaultTestCatalog :: CatalogInterpreter
+defaultTestCatalog = (runInMemoryCatalog, InMemoryCatalog
     ( HMS.singleton defaultDatabase $ HMS.fromList
         [ ( publicSchema
           , HMS.fromList
@@ -203,6 +203,7 @@ defaultTestCatalog = makeCatalog
     )
     [ publicSchema ]
     defaultDatabase
+    )
 
 tests :: Test
 tests = test [ testTableUsage ]

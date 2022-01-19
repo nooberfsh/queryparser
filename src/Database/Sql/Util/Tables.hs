@@ -214,9 +214,9 @@ instance HasTables (Delete ResolvedNames a) where
         goTables expr
 
 instance HasTables (CreateTable d ResolvedNames a) where
-    goTables CreateTable{createTableName = RCreateTableName table _, ..} = do
+    goTables CreateTable{..} = do
         -- TODO handle createTableExtra, and the dialect instances
-        local (\_ -> WriteData) $ emitTable table
+        local (\_ -> WriteData) $ emitTable createTableName
         goTables createTableDefinition
 
 instance HasTables (TableDefinition d ResolvedNames a) where
@@ -257,8 +257,8 @@ instance HasTables (DropTable ResolvedNames a) where
       tables
 
 instance HasTables (CreateView ResolvedNames a) where
-    goTables CreateView{createViewName = RCreateTableName view _, ..} = do
-        local (\_ -> WriteMeta) $ emitTable view
+    goTables CreateView{..} = do
+        local (\_ -> WriteMeta) $ emitTable createViewName
         goTables createViewQuery
 
 instance HasTables (DropView ResolvedNames a) where

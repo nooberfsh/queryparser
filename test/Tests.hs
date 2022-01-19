@@ -35,8 +35,8 @@ import qualified Database.Sql.Util.Joins.Test
 import qualified Database.Sql.Util.Json.Test
 import qualified Database.Sql.Util.Lineage.Table.Test
 import qualified Database.Sql.Util.Lineage.ColumnPlus.Test
-import qualified Database.Sql.Util.Schema.Test
 import qualified Database.Sql.Util.Scope.Test
+import qualified Database.Sql.Util.Scope.SchemaChange
 import qualified Database.Sql.Util.Tables.Test
 import qualified Database.Sql.Util.Catalog.Test
 import qualified Test.Framework.Providers.API as TestFramework
@@ -72,10 +72,10 @@ hunitTests = Test.hUnitTestToTests $ HU.TestList
     , Database.Sql.Util.Eval.Test.tests
     , Database.Sql.Util.Catalog.Test.tests
     , Database.Sql.Util.Scope.Test.tests
+    , Database.Sql.Util.Scope.SchemaChange.tests
     , Database.Sql.Util.Joins.Test.tests
     , Database.Sql.Util.Lineage.Table.Test.tests
     , Database.Sql.Util.Lineage.ColumnPlus.Test.tests
-    , Database.Sql.Util.Schema.Test.tests
     , Database.Sql.Util.Tables.Test.tests
     , Database.Sql.Vertica.Scanner.Test.tests
     , Database.Sql.Vertica.Parser.Test.tests
