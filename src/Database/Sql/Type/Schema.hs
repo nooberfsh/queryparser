@@ -85,20 +85,6 @@ runInMemoryCatalog = reinterpret $ \case
                 pure rtn
             [] -> throw $ MissingTable oqtn
 
-    CatalogHasDatabase databaseName -> do
-        InMemoryCatalog {..} <- get
-        case HMS.member (void databaseName) catalog of
-            False -> return DoesNotExist
-            True -> return Exists
-
-    CatalogHasSchema schemaName -> do
-        InMemoryCatalog {..} <- get
-        case HMS.lookup currentDb catalog of
-            Just db -> case HMS.member (void schemaName) db of
-                False -> return DoesNotExist
-                True -> return Exists
-            Nothing -> return DoesNotExist
-
     CatalogHasTable tableName -> do
         InMemoryCatalog {..} <- get
         let getTableFromSchema uqsn = do
@@ -424,20 +410,6 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
                      , Right $ TableNameDefaulted oqtn rtn
                      ]
                 pure rtn
-
-    CatalogHasDatabase databaseName -> do
-        InMemoryCatalog {..} <- get
-        case HMS.member (void databaseName) catalog of
-            False -> return DoesNotExist
-            True -> return Exists
-
-    CatalogHasSchema schemaName -> do
-        InMemoryCatalog {..} <- get
-        case HMS.lookup currentDb catalog of
-            Just db -> case HMS.member (void schemaName) db of
-                False -> return DoesNotExist
-                True -> return Exists
-            Nothing -> return DoesNotExist
 
     CatalogHasTable tableName -> do
         InMemoryCatalog {..} <- get

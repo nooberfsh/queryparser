@@ -209,8 +209,6 @@ inHeadOfPath (QTableName tInfo _ tableName) path currentDb =
 data Catalog i m a where
     CatalogResolveSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
     CatalogResolveTableName :: OQTableName i -> Catalog i m (RTableName i)
-    CatalogHasDatabase :: DatabaseName () -> Catalog i m Existence
-    CatalogHasSchema :: UQSchemaName () -> Catalog i m Existence
     CatalogHasTable :: UQTableName () -> Catalog i m Existence  -- | nb DoesNotExist does not imply that we can't resolve to this name (defaulting)
     CatalogResolveTableRef :: OQTableName i -> Catalog i m (WithColumns RTableRef i)
     CatalogResolveCreateSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
