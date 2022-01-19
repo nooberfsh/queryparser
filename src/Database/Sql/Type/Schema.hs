@@ -280,19 +280,14 @@ runInMemoryCatalog = reinterpret $ \case
         InMemoryCatalog {..} <- get
         let fqsn = QSchemaName sInfo (pure db) schemaName schemaType
             fqtn = QTableName tInfo (pure fqsn) tableName
-            default' = RTableName fqtn (persistentTable [])
-            missingD = Left $ MissingDatabase db
-            missingS = Left $ MissingSchema oqsn
-            missingT = Left $ MissingTable oqtn
-            tableNameResolved = Right $ TableNameResolved oqtn default'
         case HMS.lookup (void db) catalog of
-            Nothing -> tell [missingD, missingS, missingT, tableNameResolved] >> pure default'
+            Nothing -> throw $ MissingDatabase db
             Just database ->
                 case HMS.lookup (QSchemaName () None schemaName schemaType) database of
-                    Nothing -> tell [missingS, missingT, tableNameResolved] >> pure default'
+                    Nothing -> throw $ MissingSchema oqsn
                     Just schema -> do
                         case HMS.lookup (QTableName () None tableName) schema of
-                            Nothing -> tell [missingT, tableNameResolved] >> pure default'
+                            Nothing -> throw $ MissingTable oqtn
                             Just table -> do
                                 let rtn = RTableName fqtn table
                                 tell [Right $ TableNameResolved oqtn rtn]

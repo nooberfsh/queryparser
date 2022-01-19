@@ -759,18 +759,28 @@ resolveSchemaName
 resolveSchemaName schemaName = do
     catalogResolveSchemaName schemaName
 
-
 resolveTableRef 
     :: (Members (ResolverEff a) r)
     => OQTableName a -> Sem r (WithColumns RTableRef a)
-resolveTableRef oqtn = do
+resolveTableRef oqtn@(QTableName _ Nothing _) = do
     ResolverInfo{bindings = Bindings{..}} <- ask
     case filter (resolvedTableHasName oqtn) $ map (uncurry RTableAlias) boundCTEs of
         [t] -> do
             tell [Right $ TableRefResolved oqtn t]
             pure $ WithColumns t [(Just t, getColumnList t)]
         _:_ -> throw $ AmbiguousTable oqtn
-        [] -> catalogResolveTableRef oqtn
+        [] -> resolveTableRefInCatalog oqtn
+
+resolveTableRef oqtn@(QTableName _ (Just _) _) = resolveTableRefInCatalog oqtn
+
+resolveTableRefInCatalog
+    :: (Members (ResolverEff a) r)
+    => OQTableName a -> Sem r (WithColumns RTableRef a)
+resolveTableRefInCatalog oqtn@(QTableName tInfo _ _) = do
+        RTableName fqtn table@SchemaMember{..} <- catalogResolveTableName oqtn
+        let makeRColumnRef (QColumnName () None name) = RColumnRef $ QColumnName tInfo (pure fqtn) name
+            tableRef = RTableRef fqtn table
+        pure $ WithColumns tableRef [(Just tableRef, map makeRColumnRef columnsList)]
 
 resolveColumnName 
     :: (Members (ResolverEff a) r)
