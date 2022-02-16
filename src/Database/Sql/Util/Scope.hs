@@ -44,6 +44,7 @@ module Database.Sql.Util.Scope
 import Data.Maybe (mapMaybe, isJust)
 import Data.Either (lefts, rights)
 import Data.List (find)
+import Data.List.NonEmpty (NonEmpty((:|)))
 import Data.Tuple (swap)
 import Data.Function ((&))
 import Database.Sql.Type
@@ -619,11 +620,11 @@ resolveSelection
     :: (Members (ResolverEff a) r)
     => Selection RawNames a -> Sem r (Selection ResolvedNames a)
 resolveSelection (SelectStar info Nothing Unused) = do
-    columns <- asks (boundColumns . bindings)
+    columns:|_ <- asks (boundColumns . bindings)
     pure $ SelectStar info Nothing $ StarColumnNames $ map (const info <$>) $ snd =<< columns
 
 resolveSelection (SelectStar info (Just oqtn@(QTableName _ (Just schema) _)) Unused) = do
-    columns <- asks (boundColumns . bindings)
+    columns:|_ <- asks (boundColumns . bindings)
     let qualifiedColumns = qualifiedOnly columns
     case filter ((liftA2 (&&) (resolvedTableHasSchema schema) (resolvedTableHasName oqtn)) . fst) qualifiedColumns of
         [] -> throw $ UnintroducedTable oqtn
@@ -631,7 +632,7 @@ resolveSelection (SelectStar info (Just oqtn@(QTableName _ (Just schema) _)) Unu
         _ -> throw $ AmbiguousTable oqtn
 
 resolveSelection (SelectStar info (Just oqtn@(QTableName tableInfo Nothing table)) Unused) = do
-    columns <- asks (boundColumns . bindings)
+    columns:|_ <- asks (boundColumns . bindings)
     let qualifiedColumns = qualifiedOnly columns
     case filter (resolvedTableHasName oqtn . fst) qualifiedColumns of
         [] -> throw $ UnintroducedTable $ QTableName tableInfo Nothing table

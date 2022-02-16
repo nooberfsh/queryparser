@@ -43,6 +43,7 @@ import qualified Data.HashMap.Strict as HMS
 import           Data.HashMap.Strict (HashMap)
 
 import Data.List (subsequences)
+import Data.List.NonEmpty (NonEmpty, NonEmpty((:|)))
 import Data.Hashable (Hashable)
 
 import Test.QuickCheck
@@ -71,11 +72,11 @@ type ColumnSet a = [(Maybe (RTableRef a), [RColumnRef a])]
 
 data Bindings a = Bindings
     { boundCTEs :: [(TableAlias a, [RColumnRef a])]
-    , boundColumns :: ColumnSet a
+    , boundColumns :: NonEmpty (ColumnSet a)
     }
 
 emptyBindings :: Bindings a
-emptyBindings = Bindings [] []
+emptyBindings = Bindings [] ([]:|[])
 
 type BindForClause a = forall r s . Member (PR.Reader (ResolverInfo a)) r => Sem r s -> Sem r s
 
@@ -103,7 +104,7 @@ mapBindings f ResolverInfo{..} = ResolverInfo{bindings = f bindings, ..}
 
 
 bindColumns :: Member (PR.Reader (ResolverInfo a)) r => ColumnSet a -> Sem r s -> Sem r s
-bindColumns columns = PR.local (mapBindings $ \ Bindings{..} -> Bindings{boundColumns = columns ++ boundColumns, ..})
+bindColumns columns = PR.local (mapBindings $ \ (Bindings cte (x:|xs)) -> Bindings cte ((columns ++ x) :| xs))
 
 bindLambdaParams :: Member (PR.Reader (ResolverInfo a)) r => [LambdaParam a] -> Sem r s -> Sem r s
 bindLambdaParams params = PR.local (\ResolverInfo{..} -> ResolverInfo{lambdaScope = params:lambdaScope, ..})
@@ -212,7 +213,7 @@ data Catalog i m a where
     CatalogHasTable :: UQTableName () -> Catalog i m Existence  -- | nb DoesNotExist does not imply that we can't resolve to this name (defaulting)
     CatalogResolveCreateSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
     CatalogResolveCreateTableName :: OQTableName i -> Catalog i m (FQTableName i)
-    CatalogResolveColumnName :: [(Maybe (RTableRef i), [RColumnRef i])] -> OQColumnName i -> Catalog i m (RColumnRef i)
+    CatalogResolveColumnName :: NonEmpty [(Maybe (RTableRef i), [RColumnRef i])] -> OQColumnName i -> Catalog i m (RColumnRef i)
     -- | apply schema changes TODO: add tests
     CatalogResolveCreateSchema :: FQSchemaName i -> Bool -> Catalog i m ()
     CatalogResolveCreateTable :: RTableName i -> Bool -> Catalog i m ()

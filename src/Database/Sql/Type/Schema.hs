@@ -36,6 +36,7 @@ import Control.Monad (void)
 import qualified Data.HashMap.Strict as HMS
 
 import Data.Maybe (mapMaybe, maybeToList)
+import Data.List.NonEmpty (NonEmpty((:|)))
 
 import Polysemy
 import Polysemy.Error
@@ -114,7 +115,7 @@ runInMemoryCatalog = reinterpret $ \case
             fqtn = QTableName tInfo (pure fqsn) tableName 
         pure fqtn
 
-    CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schema schemaType)) table)) column) -> do
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schema schemaType)) table)) column) -> do
         case filter (maybe False (liftA3 and3 (resolvedTableHasDatabase db) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
             [] -> throw $ UnintroducedTable oqtn
             _:_:_ -> throw $ AmbiguousTable oqtn
@@ -132,7 +133,7 @@ runInMemoryCatalog = reinterpret $ \case
                         pure c'
                     _ -> throw $ AmbiguousColumn oqcn
 
-    CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo Nothing schema schemaType)) table)) column) -> do
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo Nothing schema schemaType)) table)) column) -> do
         case filter (maybe False (liftA2 (&&) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
             [] -> throw $ UnintroducedTable oqtn
             _:_:_ -> throw $ AmbiguousTable oqtn
@@ -152,7 +153,7 @@ runInMemoryCatalog = reinterpret $ \case
                         pure c'
                     _ -> throw $ AmbiguousColumn oqcn
 
-    CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo Nothing table)) column) -> do
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo Nothing table)) column) -> do
         let setInfo :: Functor f => f a -> f a
             setInfo = fmap (const cInfo)
 
@@ -182,7 +183,7 @@ runInMemoryCatalog = reinterpret $ \case
                         pure c'
                     _ -> throw $ AmbiguousColumn oqcn
 
-    CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo Nothing _) -> do
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo Nothing _) -> do
         let columns = snd =<< boundColumns
         case filter (resolvedColumnHasName oqcn) columns of
             [] -> throw $ MissingColumn oqcn
@@ -386,7 +387,7 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
         pure fqtn
 
 
-    CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schema schemaType)) table)) column) -> do
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schema schemaType)) table)) column) -> do
         case filter (maybe False (liftA3 and3 (resolvedTableHasDatabase db) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
             [] -> tell [Left $ UnintroducedTable oqtn]
             _:_:_ -> tell [Left $ AmbiguousTable oqtn]
@@ -399,7 +400,7 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
         tell [Right $ ColumnRefResolved oqcn columnRef]
         pure columnRef
 
-    CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo Nothing schema schemaType)) table)) column) -> do
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo Nothing schema schemaType)) table)) column) -> do
         InMemoryCatalog {..} <- get
         let filtered = filter (maybe False (liftA2 (&&) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns
             fqtnDefault = QTableName tInfo (Identity $ inCurrentDb oqsn currentDb) table
@@ -420,7 +421,7 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
         tell [Right $ ColumnRefResolved oqcn columnRef]
         pure columnRef
 
-    CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo Nothing table)) column) -> do
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo Nothing table)) column) -> do
         let setInfo :: Functor f => f a -> f a
             setInfo = fmap (const cInfo)
 
@@ -471,7 +472,7 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
                                       ]
                         pure c'
 
-    CatalogResolveColumnName boundColumns oqcn@(QColumnName cInfo Nothing column) -> do
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo Nothing column) -> do
         let columns = snd =<< boundColumns
         case filter (resolvedColumnHasName oqcn) columns of
             [] -> do
