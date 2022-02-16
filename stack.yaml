@@ -12,9 +12,6 @@ packages:
 - 'dialects/hive'
 - 'dialects/presto'
 
-docker:
-    enable: true
-
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps: [ 'test-framework-quickcheck-0.3.0'
             , 'file-location-0.4.9.1'
