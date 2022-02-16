@@ -115,83 +115,7 @@ runInMemoryCatalog = reinterpret $ \case
             fqtn = QTableName tInfo (pure fqsn) tableName 
         pure fqtn
 
-    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schema schemaType)) table)) column) -> do
-        case filter (maybe False (liftA3 and3 (resolvedTableHasDatabase db) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
-            [] -> throw $ UnintroducedTable oqtn
-            _:_:_ -> throw $ AmbiguousTable oqtn
-            [(_, columns)] ->
-                case filter (resolvedColumnHasName oqcn) columns of
-                    [] -> do
-                        let c = RColumnRef $ QColumnName cInfo (pure $ QTableName tInfo (pure $ QSchemaName sInfo (pure db) schema schemaType) table) column
-                        tell [ Left $ MissingColumn oqcn
-                             , Right $ ColumnRefResolved oqcn c
-                             ]
-                        pure c
-                    [c] -> do
-                        let c' = fmap (const cInfo) c
-                        tell [Right $ ColumnRefResolved oqcn c']
-                        pure c'
-                    _ -> throw $ AmbiguousColumn oqcn
-
-    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo Nothing schema schemaType)) table)) column) -> do
-        case filter (maybe False (liftA2 (&&) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
-            [] -> throw $ UnintroducedTable oqtn
-            _:_:_ -> throw $ AmbiguousTable oqtn
-            [(table', columns)] ->
-                case filter (resolvedColumnHasName oqcn) columns of
-                    [] -> do
-                        let Just (RTableRef (QTableName _ (Identity (QSchemaName _ (Identity (DatabaseName _ db)) _ _)) _) _) = table' -- this pattern match shouldn't fail:
-                            -- the `maybe False` prevents Nothings, and the `resolvedTableHasSchema` prevents RTableAliases
-                            c = RColumnRef $ QColumnName cInfo (pure $ QTableName tInfo (pure $ QSchemaName sInfo (pure $ DatabaseName sInfo db) schema schemaType) table) column
-                        tell [ Left $ MissingColumn oqcn
-                             , Right $ ColumnRefResolved oqcn c
-                             ]
-                        pure c
-                    [c] -> do
-                        let c' = fmap (const cInfo) c
-                        tell [Right $ ColumnRefResolved oqcn c']
-                        pure c'
-                    _ -> throw $ AmbiguousColumn oqcn
-
-    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo Nothing table)) column) -> do
-        let setInfo :: Functor f => f a -> f a
-            setInfo = fmap (const cInfo)
-
-        case [ (t, cs) | (mt, cs) <- boundColumns, t <- maybeToList mt, resolvedTableHasName oqtn t ] of
-            [] -> throw $ UnintroducedTable oqtn
-            [(table', columns)] -> do
-                case filter (resolvedColumnHasName oqcn) columns of
-                    [] -> case table' of
-                        RTableAlias _ _ -> throw $ MissingColumn oqcn
-                        RTableRef fqtn@(QTableName _ (Identity (QSchemaName _ (Identity (DatabaseName _ db)) schema schemaType)) _) _ -> do
-                            let c = RColumnRef $ QColumnName cInfo (pure $ setInfo fqtn) column
-                            tell [ Left $ MissingColumn $ QColumnName cInfo (Just $ QTableName tInfo (Just $ QSchemaName cInfo (Just $ DatabaseName cInfo db) schema schemaType) table) column
-                                 , Right $ ColumnRefResolved oqcn c]
-                            pure c
-                    [c] -> do
-                        let c' = setInfo c
-                        tell [Right $ ColumnRefResolved oqcn c']
-                        pure c'
-                    _ -> throw $ AmbiguousColumn oqcn
-            tables -> do
-                tell [Left $ AmbiguousTable oqtn]
-                case filter (resolvedColumnHasName oqcn) $ snd =<< tables of
-                    [] -> throw $ MissingColumn oqcn
-                    [c] -> do
-                        let c' = setInfo c
-                        tell [Right $ ColumnRefResolved oqcn c']
-                        pure c'
-                    _ -> throw $ AmbiguousColumn oqcn
-
-    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn@(QColumnName cInfo Nothing _) -> do
-        let columns = snd =<< boundColumns
-        case filter (resolvedColumnHasName oqcn) columns of
-            [] -> throw $ MissingColumn oqcn
-            [c] -> do
-                let c' = fmap (const cInfo) c
-                tell [Right $ ColumnRefResolved oqcn c']
-                pure c'
-            _ -> throw $ AmbiguousColumn oqcn
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn -> error "TODO"
 
     CatalogResolveCreateSchema (QSchemaName _ _ _ SessionSchema) _ -> error "can't create the session schema"
 
@@ -269,6 +193,87 @@ runInMemoryCatalog = reinterpret $ \case
                                 pure rtn
 
     catalogResolveTableNameHelper _ = error "only call catalogResolveTableNameHelper with fully qualified table name"
+
+    catalogResolveColumnNameHelper 
+        :: (Members (CatalogEff a) r)
+        => [(Maybe (RTableRef a), [RColumnRef a])] -> OQColumnName a -> Sem (State InMemoryCatalog : r) (RColumnRef a)
+    catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schema schemaType)) table)) column) = do
+        case filter (maybe False (liftA3 and3 (resolvedTableHasDatabase db) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
+            [] -> throw $ UnintroducedTable oqtn
+            _:_:_ -> throw $ AmbiguousTable oqtn
+            [(_, columns)] ->
+                case filter (resolvedColumnHasName oqcn) columns of
+                    [] -> do
+                        let c = RColumnRef $ QColumnName cInfo (pure $ QTableName tInfo (pure $ QSchemaName sInfo (pure db) schema schemaType) table) column
+                        tell [ Left $ MissingColumn oqcn
+                             , Right $ ColumnRefResolved oqcn c
+                             ]
+                        pure c
+                    [c] -> do
+                        let c' = fmap (const cInfo) c
+                        tell [Right $ ColumnRefResolved oqcn c']
+                        pure c'
+                    _ -> throw $ AmbiguousColumn oqcn
+
+    catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo Nothing schema schemaType)) table)) column) = do
+        case filter (maybe False (liftA2 (&&) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
+            [] -> throw $ UnintroducedTable oqtn
+            _:_:_ -> throw $ AmbiguousTable oqtn
+            [(table', columns)] ->
+                case filter (resolvedColumnHasName oqcn) columns of
+                    [] -> do
+                        let Just (RTableRef (QTableName _ (Identity (QSchemaName _ (Identity (DatabaseName _ db)) _ _)) _) _) = table' -- this pattern match shouldn't fail:
+                            -- the `maybe False` prevents Nothings, and the `resolvedTableHasSchema` prevents RTableAliases
+                            c = RColumnRef $ QColumnName cInfo (pure $ QTableName tInfo (pure $ QSchemaName sInfo (pure $ DatabaseName sInfo db) schema schemaType) table) column
+                        tell [ Left $ MissingColumn oqcn
+                             , Right $ ColumnRefResolved oqcn c
+                             ]
+                        pure c
+                    [c] -> do
+                        let c' = fmap (const cInfo) c
+                        tell [Right $ ColumnRefResolved oqcn c']
+                        pure c'
+                    _ -> throw $ AmbiguousColumn oqcn
+
+    catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo Nothing table)) column) = do
+        let setInfo :: Functor f => f a -> f a
+            setInfo = fmap (const cInfo)
+
+        case [ (t, cs) | (mt, cs) <- boundColumns, t <- maybeToList mt, resolvedTableHasName oqtn t ] of
+            [] -> throw $ UnintroducedTable oqtn
+            [(table', columns)] -> do
+                case filter (resolvedColumnHasName oqcn) columns of
+                    [] -> case table' of
+                        RTableAlias _ _ -> throw $ MissingColumn oqcn
+                        RTableRef fqtn@(QTableName _ (Identity (QSchemaName _ (Identity (DatabaseName _ db)) schema schemaType)) _) _ -> do
+                            let c = RColumnRef $ QColumnName cInfo (pure $ setInfo fqtn) column
+                            tell [ Left $ MissingColumn $ QColumnName cInfo (Just $ QTableName tInfo (Just $ QSchemaName cInfo (Just $ DatabaseName cInfo db) schema schemaType) table) column
+                                 , Right $ ColumnRefResolved oqcn c]
+                            pure c
+                    [c] -> do
+                        let c' = setInfo c
+                        tell [Right $ ColumnRefResolved oqcn c']
+                        pure c'
+                    _ -> throw $ AmbiguousColumn oqcn
+            tables -> do
+                tell [Left $ AmbiguousTable oqtn]
+                case filter (resolvedColumnHasName oqcn) $ snd =<< tables of
+                    [] -> throw $ MissingColumn oqcn
+                    [c] -> do
+                        let c' = setInfo c
+                        tell [Right $ ColumnRefResolved oqcn c']
+                        pure c'
+                    _ -> throw $ AmbiguousColumn oqcn
+
+    catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo Nothing _) = do
+        let columns = snd =<< boundColumns
+        case filter (resolvedColumnHasName oqcn) columns of
+            [] -> throw $ MissingColumn oqcn
+            [c] -> do
+                let c' = fmap (const cInfo) c
+                tell [Right $ ColumnRefResolved oqcn c']
+                pure c'
+            _ -> throw $ AmbiguousColumn oqcn
 
     catalogResolveDropTableHelper 
         :: (Members (CatalogEff a) r)
