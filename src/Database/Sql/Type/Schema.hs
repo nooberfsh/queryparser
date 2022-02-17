@@ -197,18 +197,13 @@ runInMemoryCatalog = reinterpret $ \case
     catalogResolveColumnNameHelper 
         :: (Members (CatalogEff a) r)
         => [(Maybe (RTableRef a), [RColumnRef a])] -> OQColumnName a -> Sem (State InMemoryCatalog : r) (RColumnRef a)
-    catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo (Just db) schema schemaType)) table)) column) = do
+    catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName _ (Just oqsn@(QSchemaName _ (Just db) _ _)) _)) _) = do
         case filter (maybe False (liftA3 and3 (resolvedTableHasDatabase db) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
             [] -> throw $ UnintroducedTable oqtn
             _:_:_ -> throw $ AmbiguousTable oqtn
             [(_, columns)] ->
                 case filter (resolvedColumnHasName oqcn) columns of
-                    [] -> do
-                        let c = RColumnRef $ QColumnName cInfo (pure $ QTableName tInfo (pure $ QSchemaName sInfo (pure db) schema schemaType) table) column
-                        tell [ Left $ MissingColumn oqcn
-                             , Right $ ColumnRefResolved oqcn c
-                             ]
-                        pure c
+                    [] -> throw $ MissingColumn oqcn
                     [c] -> do
                         let c' = fmap (const cInfo) c
                         tell [Right $ ColumnRefResolved oqcn c']
@@ -221,14 +216,7 @@ runInMemoryCatalog = reinterpret $ \case
             _:_:_ -> throw $ AmbiguousTable oqtn
             [(table', columns)] ->
                 case filter (resolvedColumnHasName oqcn) columns of
-                    [] -> do
-                        let Just (RTableRef (QTableName _ (Identity (QSchemaName _ (Identity (DatabaseName _ db)) _ _)) _) _) = table' -- this pattern match shouldn't fail:
-                            -- the `maybe False` prevents Nothings, and the `resolvedTableHasSchema` prevents RTableAliases
-                            c = RColumnRef $ QColumnName cInfo (pure $ QTableName tInfo (pure $ QSchemaName sInfo (pure $ DatabaseName sInfo db) schema schemaType) table) column
-                        tell [ Left $ MissingColumn oqcn
-                             , Right $ ColumnRefResolved oqcn c
-                             ]
-                        pure c
+                    [] -> throw $ MissingColumn oqcn
                     [c] -> do
                         let c' = fmap (const cInfo) c
                         tell [Right $ ColumnRefResolved oqcn c']
