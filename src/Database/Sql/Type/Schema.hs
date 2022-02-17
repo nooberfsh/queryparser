@@ -115,7 +115,14 @@ runInMemoryCatalog = reinterpret $ \case
             fqtn = QTableName tInfo (pure fqsn) tableName 
         pure fqtn
 
-    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn -> catalogResolveColumnNameHelper (concat (boundColumns:boundColumnsRest)) oqcn
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn -> do
+        results <- mapM (`catalogResolveColumnNameHelper` oqcn) (boundColumns:boundColumnsRest)
+        let results' = [x | Just x <- results]
+            tbl = columnNameTable oqcn
+        case (results', tbl) of
+            ([], Nothing) -> throw $ MissingColumn oqcn
+            ([], Just oqtn) -> throw $ UnintroducedTable oqtn
+            (x:_, _) -> pure x
 
     CatalogResolveCreateSchema (QSchemaName _ _ _ SessionSchema) _ -> error "can't create the session schema"
 
@@ -196,10 +203,10 @@ runInMemoryCatalog = reinterpret $ \case
 
     catalogResolveColumnNameHelper 
         :: (Members (CatalogEff a) r)
-        => [(Maybe (RTableRef a), [RColumnRef a])] -> OQColumnName a -> Sem (State InMemoryCatalog : r) (RColumnRef a)
+        => [(Maybe (RTableRef a), [RColumnRef a])] -> OQColumnName a -> Sem (State InMemoryCatalog : r) (Maybe (RColumnRef a))
     catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName _ (Just oqsn@(QSchemaName _ (Just db) _ _)) _)) _) = do
         case filter (maybe False (liftA3 and3 (resolvedTableHasDatabase db) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
-            [] -> throw $ UnintroducedTable oqtn
+            [] -> pure Nothing
             _:_:_ -> throw $ AmbiguousTable oqtn
             [(_, columns)] ->
                 case filter (resolvedColumnHasName oqcn) columns of
@@ -207,20 +214,20 @@ runInMemoryCatalog = reinterpret $ \case
                     [c] -> do
                         let c' = fmap (const cInfo) c
                         tell [Right $ ColumnRefResolved oqcn c']
-                        pure c'
+                        pure $ Just c'
                     _ -> throw $ AmbiguousColumn oqcn
 
-    catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo (Just oqsn@(QSchemaName sInfo Nothing schema schemaType)) table)) column) = do
+    catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName _ (Just oqsn@(QSchemaName _ Nothing _ _)) _)) _) = do
         case filter (maybe False (liftA2 (&&) (resolvedTableHasSchema oqsn) (resolvedTableHasName oqtn)) . fst) boundColumns of
-            [] -> throw $ UnintroducedTable oqtn
+            [] -> pure Nothing
             _:_:_ -> throw $ AmbiguousTable oqtn
-            [(table', columns)] ->
+            [(_, columns)] ->
                 case filter (resolvedColumnHasName oqcn) columns of
                     [] -> throw $ MissingColumn oqcn
                     [c] -> do
                         let c' = fmap (const cInfo) c
                         tell [Right $ ColumnRefResolved oqcn c']
-                        pure c'
+                        pure $ Just c'
                     _ -> throw $ AmbiguousColumn oqcn
 
     catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo (Just oqtn@(QTableName tInfo Nothing table)) column) = do
@@ -228,7 +235,7 @@ runInMemoryCatalog = reinterpret $ \case
             setInfo = fmap (const cInfo)
 
         case [ (t, cs) | (mt, cs) <- boundColumns, t <- maybeToList mt, resolvedTableHasName oqtn t ] of
-            [] -> throw $ UnintroducedTable oqtn
+            [] -> pure Nothing
             [(table', columns)] -> do
                 case filter (resolvedColumnHasName oqcn) columns of
                     [] -> case table' of
@@ -237,11 +244,11 @@ runInMemoryCatalog = reinterpret $ \case
                             let c = RColumnRef $ QColumnName cInfo (pure $ setInfo fqtn) column
                             tell [ Left $ MissingColumn $ QColumnName cInfo (Just $ QTableName tInfo (Just $ QSchemaName cInfo (Just $ DatabaseName cInfo db) schema schemaType) table) column
                                  , Right $ ColumnRefResolved oqcn c]
-                            pure c
+                            pure $ Just c
                     [c] -> do
                         let c' = setInfo c
                         tell [Right $ ColumnRefResolved oqcn c']
-                        pure c'
+                        pure $ Just c'
                     _ -> throw $ AmbiguousColumn oqcn
             tables -> do
                 tell [Left $ AmbiguousTable oqtn]
@@ -250,17 +257,17 @@ runInMemoryCatalog = reinterpret $ \case
                     [c] -> do
                         let c' = setInfo c
                         tell [Right $ ColumnRefResolved oqcn c']
-                        pure c'
+                        pure $ Just c'
                     _ -> throw $ AmbiguousColumn oqcn
 
     catalogResolveColumnNameHelper boundColumns oqcn@(QColumnName cInfo Nothing _) = do
         let columns = snd =<< boundColumns
         case filter (resolvedColumnHasName oqcn) columns of
-            [] -> throw $ MissingColumn oqcn
+            [] -> pure Nothing
             [c] -> do
                 let c' = fmap (const cInfo) c
                 tell [Right $ ColumnRefResolved oqcn c']
-                pure c'
+                pure $ Just c'
             _ -> throw $ AmbiguousColumn oqcn
 
     catalogResolveDropTableHelper 
@@ -379,7 +386,9 @@ runInMemoryDefaultingCatalog = reinterpret $ \case
             fqtn = QTableName tInfo (pure fqsn) tableName 
         pure fqtn
 
-    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn -> catalogResolveColumnNameHelper (concat (boundColumns:boundColumnsRest)) oqcn
+    CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn -> 
+        -- TODO: resolve column in each boundColumns
+        catalogResolveColumnNameHelper (concat (boundColumns:boundColumnsRest)) oqcn
 
     CatalogResolveCreateSchema (QSchemaName _ _ _ SessionSchema) _ -> error "can't create the session schema"
 
