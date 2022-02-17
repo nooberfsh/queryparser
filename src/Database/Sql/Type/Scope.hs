@@ -43,7 +43,7 @@ import qualified Data.HashMap.Strict as HMS
 import           Data.HashMap.Strict (HashMap)
 
 import Data.List (subsequences)
-import Data.List.NonEmpty (NonEmpty, NonEmpty((:|)))
+import Data.List.NonEmpty (NonEmpty, NonEmpty((:|)), (<|))
 import Data.Hashable (Hashable)
 
 import Test.QuickCheck
@@ -102,6 +102,8 @@ data ResolverInfo a = ResolverInfo
 mapBindings :: (Bindings a -> Bindings a) -> ResolverInfo a -> ResolverInfo a
 mapBindings f ResolverInfo{..} = ResolverInfo{bindings = f bindings, ..}
 
+bindNewScope :: Member (PR.Reader (ResolverInfo a)) r => Sem r s -> Sem r s
+bindNewScope = PR.local (mapBindings $ \ (Bindings cte xs) -> Bindings cte ([]<|xs))
 
 bindColumns :: Member (PR.Reader (ResolverInfo a)) r => ColumnSet a -> Sem r s -> Sem r s
 bindColumns columns = PR.local (mapBindings $ \ (Bindings cte (x:|xs)) -> Bindings cte ((columns ++ x) :| xs))

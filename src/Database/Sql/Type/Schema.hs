@@ -116,13 +116,12 @@ runInMemoryCatalog = reinterpret $ \case
         pure fqtn
 
     CatalogResolveColumnName (boundColumns:|boundColumnsRest) oqcn -> do
-        results <- mapM (`catalogResolveColumnNameHelper` oqcn) (boundColumns:boundColumnsRest)
-        let results' = [x | Just x <- results]
-            tbl = columnNameTable oqcn
-        case (results', tbl) of
-            ([], Nothing) -> throw $ MissingColumn oqcn
-            ([], Just oqtn) -> throw $ UnintroducedTable oqtn
-            (x:_, _) -> pure x
+        result <- catalogResolveColumnName' (boundColumns:boundColumnsRest) oqcn
+        let tbl = columnNameTable oqcn
+        case (result, tbl) of
+            (Nothing, Nothing) -> throw $ MissingColumn oqcn
+            (Nothing, Just oqtn) -> throw $ UnintroducedTable oqtn
+            (Just x, _) -> pure x
 
     CatalogResolveCreateSchema (QSchemaName _ _ _ SessionSchema) _ -> error "can't create the session schema"
 
@@ -200,6 +199,16 @@ runInMemoryCatalog = reinterpret $ \case
                                 pure rtn
 
     catalogResolveTableNameHelper _ = error "only call catalogResolveTableNameHelper with fully qualified table name"
+
+    catalogResolveColumnName'
+        :: (Members (CatalogEff a) r)
+        => [[(Maybe (RTableRef a), [RColumnRef a])]] -> OQColumnName a -> Sem (State InMemoryCatalog : r) (Maybe (RColumnRef a))
+    catalogResolveColumnName' [] _ = pure Nothing
+    catalogResolveColumnName' (x:xs) oqsn = do
+        res <- catalogResolveColumnNameHelper x oqsn
+        case res of
+            Nothing -> catalogResolveColumnName' xs oqsn
+            Just d -> pure $ Just d
 
     catalogResolveColumnNameHelper 
         :: (Members (CatalogEff a) r)

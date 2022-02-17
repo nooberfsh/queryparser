@@ -662,7 +662,7 @@ resolveExpr (ConstantExpr info constant) = pure $ ConstantExpr info constant
 resolveExpr (ColumnExpr info column) = resolveLambdaParamOrColumnName info column
 resolveExpr (InListExpr info list expr) = InListExpr info <$> mapM resolveExpr list <*> resolveExpr expr
 resolveExpr (InSubqueryExpr info query expr) = do
-    query' <- resolveQuery query
+    query' <- bindNewScope $ resolveQuery query
     expr' <- resolveExpr expr
     pure $ InSubqueryExpr info query' expr'
 
@@ -688,7 +688,7 @@ resolveExpr (FunctionExpr info name distinct args params filter' over) =
       Filter i <$> resolveExpr expr
 
 resolveExpr (AtTimeZoneExpr info expr tz) = AtTimeZoneExpr info <$> resolveExpr expr <*> resolveExpr tz
-resolveExpr (SubqueryExpr info query) = SubqueryExpr info <$> resolveQuery query
+resolveExpr (SubqueryExpr info query) = SubqueryExpr info <$> bindNewScope (resolveQuery query)
 resolveExpr (ArrayExpr info array) = ArrayExpr info <$> mapM resolveExpr array
 resolveExpr (ExistsExpr info query) = ExistsExpr info <$> resolveQuery query
 resolveExpr (FieldAccessExpr info expr field) = FieldAccessExpr info <$> resolveExpr expr <*> pure field
@@ -836,7 +836,7 @@ resolveTablish (TablishTable info aliases name) = do
 
 
 resolveTablish (TablishSubQuery info aliases query) = do
-    query' <- resolveQuery query
+    query' <- bindNewScope $ resolveQuery query
     let columns = queryColumnNames query'
         (tAlias, cAliases) = case aliases of
             TablishAliasesNone -> (Nothing, columns)

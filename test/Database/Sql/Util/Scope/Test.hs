@@ -165,6 +165,12 @@ testNoResolveErrors =
             , "DELETE FROM foo WHERE col.field IS NOT NULL;" -- DELETE
             ]
 
+        , "test ambiguous-columns in subquery" ~:
+          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
+            [ "SELECT * FROM foo WHERE col IN (SELECT col FROM foo);"
+            , "SELECT (SELECT max(col) FROM foo) FROM foo CROSS JOIN foo;"
+            ]
+
         , ticket "T541187" $
           map (parsesAndResolvesSuccessfullyHive (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT * FROM foo LATERAL VIEW explode(col.field) foo;"  -- FROM
