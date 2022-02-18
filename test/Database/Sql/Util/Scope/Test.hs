@@ -176,6 +176,13 @@ testNoResolveErrors =
             [ "SELECT SUM(a) AS a FROM foo GROUP BY col HAVING SUM(a) > 0;"
             ]
 
+        , "test ambiguous-columns in order clauses" ~:
+          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
+            [ "SELECT t1.col FROM foo t1 CROSS JOIN foo t2 ORDER BY col;"
+            , "SELECT t1.col FROM foo t1 CROSS JOIN foo t2 ORDER BY t1.col;"
+            , "SELECT t1.col FROM foo t1 CROSS JOIN foo t2 ORDER BY t2.col;"
+            ]
+
         , ticket "T541187" $
           map (parsesAndResolvesSuccessfullyHive (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT * FROM foo LATERAL VIEW explode(col.field) foo;"  -- FROM

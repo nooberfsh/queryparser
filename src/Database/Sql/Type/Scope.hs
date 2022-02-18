@@ -130,6 +130,11 @@ bindBothColumns fromColumns selectionAliases = bindColumns $ (Nothing, onlyNewAl
             fqcns = [name | RColumnRef (QColumnName _ _ name) <- cols]
          in alias `elem` aliases ++ fqcns
 
+bindBothColumnsWithScope :: Member (PR.Reader (ResolverInfo a)) r => FromColumns a -> SelectionAliases a -> Sem r s -> Sem r s
+bindBothColumnsWithScope fromColumns selectionAliases = do
+    let newScope = [(Nothing, selectionAliases)] 
+    PR.local (mapBindings $ \ (Bindings cte (x:|xs)) -> Bindings cte (newScope :| ((fromColumns ++ x):xs)))
+
 data RawNames
 deriving instance Data RawNames
 instance Resolution RawNames where
