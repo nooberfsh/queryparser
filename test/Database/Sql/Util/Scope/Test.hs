@@ -137,7 +137,7 @@ testNoResolveErrors =
               , HMS.fromList
                   [ ( QTableName () None "foo"
                     , persistentTable
-                        [ QColumnName () None "col" ]
+                        [ QColumnName () None "col", QColumnName () None "a" ]
                     )
                   , ( QTableName () None "bar"
                     , persistentTable
@@ -169,6 +169,11 @@ testNoResolveErrors =
           map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
             [ "SELECT * FROM foo WHERE col IN (SELECT col FROM foo);"
             , "SELECT (SELECT max(col) FROM foo) FROM foo CROSS JOIN foo;"
+            ]
+
+        , "test ambiguous-columns in having clauses" ~:
+          map (TestCase . parsesAndResolvesSuccessfullyHive (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
+            [ "SELECT SUM(a) AS a FROM foo GROUP BY col HAVING SUM(a) > 0;"
             ]
 
         , ticket "T541187" $

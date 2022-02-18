@@ -121,13 +121,14 @@ bindBothColumns :: Member (PR.Reader (ResolverInfo a)) r => FromColumns a -> Sel
 bindBothColumns fromColumns selectionAliases = bindColumns $ (Nothing, onlyNewAliases selectionAliases) : fromColumns
   where
     onlyNewAliases = filter $ \case
-        alias@(RColumnAlias _) -> not $ inFromColumns alias
+        RColumnAlias alias -> not $ inFromColumns alias
         RColumnRef _ -> False
 
-    inFromColumns alias =
-        let alias' = void alias
-            cols = map void (snd =<< fromColumns)
-         in alias' `elem` cols
+    inFromColumns (ColumnAlias _ alias _) =
+        let cols = map void (snd =<< fromColumns)
+            aliases = [name | RColumnAlias (ColumnAlias _ name _) <- cols]
+            fqcns = [name | RColumnRef (QColumnName _ _ name) <- cols]
+         in alias `elem` aliases ++ fqcns
 
 data RawNames
 deriving instance Data RawNames
