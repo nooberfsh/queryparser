@@ -297,28 +297,28 @@ tableAliases from =
             Just (SelectFrom _ ts) -> ts
             Nothing -> []
       in L.foldl' S.union S.empty $ map tablishToTableAlias tablishes
-  where
-    tablishToTableAlias :: Tablish RawNames Range -> Set Text
-    tablishToTableAlias (TablishTable _ aliases tableName) = case aliases of
-        TablishAliasesNone -> tableNameToTableAlias tableName
-        TablishAliasesT (TableAlias _ name _) -> S.singleton name
-        TablishAliasesTC (TableAlias _ name _) _ -> S.singleton name
-    tablishToTableAlias (TablishSubQuery _ aliases _) = case aliases of
-        TablishAliasesNone -> S.empty
-        TablishAliasesT (TableAlias _ name _) -> S.singleton name
-        TablishAliasesTC (TableAlias _ name _) _ -> S.singleton name
-    tablishToTableAlias (TablishParenthesizedRelation _ aliases _) = case aliases of
-        TablishAliasesNone -> S.empty
-        TablishAliasesT (TableAlias _ name _) -> S.singleton name
-        TablishAliasesTC (TableAlias _ name _) _ -> S.singleton name
-    tablishToTableAlias (TablishLateralView _ LateralView{..} _) = case lateralViewAliases of
-        TablishAliasesNone -> S.empty
-        TablishAliasesT (TableAlias _ name _) -> S.singleton name
-        TablishAliasesTC (TableAlias _ name _) _ -> S.singleton name
-    tablishToTableAlias (TablishJoin _ (JoinSemi _) _ _ _) =
-        error "this shouldn't happen: no SEMI JOIN in Presto"
-    tablishToTableAlias (TablishJoin _ _ _ lTablish rTablish) =
-        tablishToTableAlias lTablish `S.union` tablishToTableAlias rTablish
+
+tablishToTableAlias :: Tablish RawNames Range -> Set Text
+tablishToTableAlias (TablishTable _ aliases tableName) = case aliases of
+    TablishAliasesNone -> tableNameToTableAlias tableName
+    TablishAliasesT (TableAlias _ name _) -> S.singleton name
+    TablishAliasesTC (TableAlias _ name _) _ -> S.singleton name
+tablishToTableAlias (TablishSubQuery _ aliases _) = case aliases of
+    TablishAliasesNone -> S.empty
+    TablishAliasesT (TableAlias _ name _) -> S.singleton name
+    TablishAliasesTC (TableAlias _ name _) _ -> S.singleton name
+tablishToTableAlias (TablishParenthesizedRelation _ aliases _) = case aliases of
+    TablishAliasesNone -> S.empty
+    TablishAliasesT (TableAlias _ name _) -> S.singleton name
+    TablishAliasesTC (TableAlias _ name _) _ -> S.singleton name
+tablishToTableAlias (TablishLateralView _ LateralView{..} _) = case lateralViewAliases of
+    TablishAliasesNone -> S.empty
+    TablishAliasesT (TableAlias _ name _) -> S.singleton name
+    TablishAliasesTC (TableAlias _ name _) _ -> S.singleton name
+tablishToTableAlias (TablishJoin _ (JoinSemi _) _ _ _) =
+    error "this shouldn't happen: no SEMI JOIN in Presto"
+tablishToTableAlias (TablishJoin _ _ _ lTablish rTablish) =
+    tablishToTableAlias lTablish `S.union` tablishToTableAlias rTablish
 
 tableNameToTableAlias :: OQTableName Range -> Set Text
 tableNameToTableAlias (QTableName _ Nothing tname) = S.singleton tname
@@ -353,8 +353,7 @@ fromP = do
 relationP :: Parser (Tablish RawNames Range)
 relationP = do
     table <- sampledRelationP
-    joins <- fmap (appEndo . fold . reverse) $ many $ Endo <$> joinP
-    return $ joins table
+    maybeJoinP table
 
 sampledRelationP :: Parser (Tablish RawNames Range)
 sampledRelationP = do
@@ -444,6 +443,13 @@ lambdaParamP = do
     (name, r) <- Tok.lambdaParamP
     makeLambdaParam r name
 
+maybeJoinP :: Tablish RawNames Range -> Parser (Tablish RawNames Range)
+maybeJoinP tbl = do
+    f <- optionMaybe $ local (introduceAliases (tablishToTableAlias tbl))  $ try joinP
+    case f of
+        Just f' -> maybeJoinP (f' tbl)
+        Nothing -> pure tbl
+
 joinP :: Parser (Tablish RawNames Range -> Tablish RawNames Range)
 joinP = crossJoinP <|> regularJoinP <|> naturalJoinP
   where
@@ -465,7 +471,7 @@ joinP = crossJoinP <|> regularJoinP <|> naturalJoinP
         condition <- choice
             [ do
                 _ <- Tok.onP <?> "condition in join clause"
-                JoinOn <$> exprP
+                JoinOn <$> local (introduceAliases (tablishToTableAlias rhs)) exprP
             , do
                 s <- Tok.usingP <?> "using in join clause"
                 _ <- Tok.openP
