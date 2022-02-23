@@ -1227,10 +1227,11 @@ tablishToTableAlias (TablishParenthesizedRelation _ aliases relation) = case ali
     TablishAliasesNone -> tablishToTableAlias relation
     TablishAliasesT _ -> error "shouldn't happen in hive"
     TablishAliasesTC _ _ -> error "shouldn't happen in hive"
-tablishToTableAlias (TablishLateralView _ LateralView{..} _) = case lateralViewAliases of
+tablishToTableAlias (TablishLateralView _ LateralView{..} Nothing) = case lateralViewAliases of
     TablishAliasesNone -> error "shouldn't happen in hive"
     TablishAliasesT (TableAlias _ name _) -> S.singleton name
     TablishAliasesTC (TableAlias _ name _) _ -> S.singleton name
+tablishToTableAlias (TablishLateralView info lateral (Just t)) = tablishToTableAlias (TablishLateralView info lateral Nothing) `S.union` tablishToTableAlias t
 tablishToTableAlias (TablishJoin _ (JoinSemi _) _ lTablish _) =
     tablishToTableAlias lTablish
 tablishToTableAlias (TablishJoin _ _ _ lTablish rTablish) =
@@ -1273,9 +1274,9 @@ selectP invertedFrom = do
     selectFrom <- maybe (optionMaybe fromP) (return . Just) invertedFrom
     selectWhere <- optionMaybe $ local (introduceAliases aliases) whereP
     let selectTimeseries = Nothing
-    selectGroup <- optionMaybe selectGroupP
-    selectHaving <- optionMaybe havingP
-    selectNamedWindow <- optionMaybe namedWindowP
+    selectGroup <- optionMaybe $ local (introduceAliases aliases) selectGroupP
+    selectHaving <- optionMaybe $ local (introduceAliases aliases) havingP
+    selectNamedWindow <- optionMaybe $ local (introduceAliases aliases) namedWindowP
 
     let (Just selectInfo) = sconcat $ Just r :|
             [ Just $ getInfo selectCols
@@ -2262,8 +2263,14 @@ manyParensP p = try p <|> P.between Tok.openP Tok.closeP (manyParensP p)
 tablishP :: Parser (Tablish RawNames Range)
 tablishP = do
     table <- singleTableWithViewsP
-    joins <- fmap (appEndo . fold . reverse) $ many $ Endo <$> joinP
-    return $ joins table
+    maybeJoinP table
+
+maybeJoinP :: Tablish RawNames Range -> Parser (Tablish RawNames Range)
+maybeJoinP tbl = do
+    f <- optionMaybe $ local (introduceAliases (tablishToTableAlias tbl))  $ try joinP
+    case f of
+        Just f' -> maybeJoinP (f' tbl)
+        Nothing -> pure tbl
 
 joinP :: Parser (Tablish RawNames Range -> Tablish RawNames Range)
 joinP = do
@@ -2275,7 +2282,7 @@ joinP = do
     rhs <- singleTableWithViewsP
     maybeCondition <- optionMaybe $ do
         _ <- Tok.onP <?> "condition in join clause"
-        JoinOn <$> exprP
+        JoinOn <$> local (introduceAliases (tablishToTableAlias rhs)) exprP
 
     let condition = case maybeCondition of
             Nothing -> let info = getInfo joinType <> getInfo rhs

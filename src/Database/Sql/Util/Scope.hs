@@ -44,6 +44,7 @@ module Database.Sql.Util.Scope
 import Data.Maybe (mapMaybe, isJust)
 import Data.Either (lefts, rights)
 import Data.List (find)
+import Data.List.NonEmpty (NonEmpty((:|)))
 import Data.Tuple (swap)
 import Data.Function ((&))
 import Database.Sql.Type
@@ -619,11 +620,11 @@ resolveSelection
     :: (Members (ResolverEff a) r)
     => Selection RawNames a -> Sem r (Selection ResolvedNames a)
 resolveSelection (SelectStar info Nothing Unused) = do
-    columns <- asks (boundColumns . bindings)
+    columns:|_ <- asks (boundColumns . bindings)
     pure $ SelectStar info Nothing $ StarColumnNames $ map (const info <$>) $ snd =<< columns
 
 resolveSelection (SelectStar info (Just oqtn@(QTableName _ (Just schema) _)) Unused) = do
-    columns <- asks (boundColumns . bindings)
+    columns:|_ <- asks (boundColumns . bindings)
     let qualifiedColumns = qualifiedOnly columns
     case filter ((liftA2 (&&) (resolvedTableHasSchema schema) (resolvedTableHasName oqtn)) . fst) qualifiedColumns of
         [] -> throw $ UnintroducedTable oqtn
@@ -631,7 +632,7 @@ resolveSelection (SelectStar info (Just oqtn@(QTableName _ (Just schema) _)) Unu
         _ -> throw $ AmbiguousTable oqtn
 
 resolveSelection (SelectStar info (Just oqtn@(QTableName tableInfo Nothing table)) Unused) = do
-    columns <- asks (boundColumns . bindings)
+    columns:|_ <- asks (boundColumns . bindings)
     let qualifiedColumns = qualifiedOnly columns
     case filter (resolvedTableHasName oqtn . fst) qualifiedColumns of
         [] -> throw $ UnintroducedTable $ QTableName tableInfo Nothing table
@@ -661,7 +662,7 @@ resolveExpr (ConstantExpr info constant) = pure $ ConstantExpr info constant
 resolveExpr (ColumnExpr info column) = resolveLambdaParamOrColumnName info column
 resolveExpr (InListExpr info list expr) = InListExpr info <$> mapM resolveExpr list <*> resolveExpr expr
 resolveExpr (InSubqueryExpr info query expr) = do
-    query' <- resolveQuery query
+    query' <- bindNewScope $ resolveQuery query
     expr' <- resolveExpr expr
     pure $ InSubqueryExpr info query' expr'
 
@@ -687,7 +688,7 @@ resolveExpr (FunctionExpr info name distinct args params filter' over) =
       Filter i <$> resolveExpr expr
 
 resolveExpr (AtTimeZoneExpr info expr tz) = AtTimeZoneExpr info <$> resolveExpr expr <*> resolveExpr tz
-resolveExpr (SubqueryExpr info query) = SubqueryExpr info <$> resolveQuery query
+resolveExpr (SubqueryExpr info query) = SubqueryExpr info <$> bindNewScope (resolveQuery query)
 resolveExpr (ArrayExpr info array) = ArrayExpr info <$> mapM resolveExpr array
 resolveExpr (ExistsExpr info query) = ExistsExpr info <$> resolveQuery query
 resolveExpr (FieldAccessExpr info expr field) = FieldAccessExpr info <$> resolveExpr expr <*> pure field
@@ -835,7 +836,7 @@ resolveTablish (TablishTable info aliases name) = do
 
 
 resolveTablish (TablishSubQuery info aliases query) = do
-    query' <- resolveQuery query
+    query' <- bindNewScope $ resolveQuery query
     let columns = queryColumnNames query'
         (tAlias, cAliases) = case aliases of
             TablishAliasesNone -> (Nothing, columns)

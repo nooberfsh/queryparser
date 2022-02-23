@@ -137,7 +137,7 @@ testNoResolveErrors =
               , HMS.fromList
                   [ ( QTableName () None "foo"
                     , persistentTable
-                        [ QColumnName () None "col" ]
+                        [ QColumnName () None "col", QColumnName () None "a" ]
                     )
                   , ( QTableName () None "bar"
                     , persistentTable
@@ -163,6 +163,30 @@ testNoResolveErrors =
               -- the clustering info, so there's nothing to resolve!)
 
             , "DELETE FROM foo WHERE col.field IS NOT NULL;" -- DELETE
+            ]
+
+        , "test ambiguous-columns in subquery" ~:
+          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
+            [ "SELECT * FROM foo WHERE col IN (SELECT col FROM foo);"
+            , "SELECT (SELECT max(col) FROM foo) FROM foo CROSS JOIN foo;"
+            ]
+
+        , "test ambiguous-columns in having clauses" ~:
+          map (TestCase . parsesAndResolvesSuccessfullyHive (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
+            [ "SELECT SUM(a) AS a FROM foo GROUP BY col HAVING SUM(a) > 0;"
+            ]
+
+        , "test unintroduced table in order by clauses" ~:
+          map (TestCase . parsesAndResolvesSuccessfullyHive (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
+            [ "SELECT t1.col FROM foo t1 ORDER BY t1.col;"
+            , "SELECT t1.col FROM foo t1 ORDER BY col;"
+            ]
+
+        , "test ambiguous-columns in order clauses" ~:
+          map (TestCase . parsesAndResolvesSuccessfullyPresto (runInMemoryCatalog, InMemoryCatalog catalog path currentDatabase))
+            [ "SELECT t1.col FROM foo t1 CROSS JOIN foo t2 ORDER BY col;"
+            , "SELECT t1.col FROM foo t1 CROSS JOIN foo t2 ORDER BY t1.col;"
+            , "SELECT t1.col FROM foo t1 CROSS JOIN foo t2 ORDER BY t2.col;"
             ]
 
         , ticket "T541187" $

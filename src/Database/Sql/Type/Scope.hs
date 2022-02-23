@@ -43,6 +43,7 @@ import qualified Data.HashMap.Strict as HMS
 import           Data.HashMap.Strict (HashMap)
 
 import Data.List (subsequences)
+import Data.List.NonEmpty (NonEmpty, NonEmpty((:|)), (<|))
 import Data.Hashable (Hashable)
 
 import Test.QuickCheck
@@ -71,11 +72,11 @@ type ColumnSet a = [(Maybe (RTableRef a), [RColumnRef a])]
 
 data Bindings a = Bindings
     { boundCTEs :: [(TableAlias a, [RColumnRef a])]
-    , boundColumns :: ColumnSet a
+    , boundColumns :: NonEmpty (ColumnSet a)
     }
 
 emptyBindings :: Bindings a
-emptyBindings = Bindings [] []
+emptyBindings = Bindings [] ([]:|[])
 
 type BindForClause a = forall r s . Member (PR.Reader (ResolverInfo a)) r => Sem r s -> Sem r s
 
@@ -101,9 +102,11 @@ data ResolverInfo a = ResolverInfo
 mapBindings :: (Bindings a -> Bindings a) -> ResolverInfo a -> ResolverInfo a
 mapBindings f ResolverInfo{..} = ResolverInfo{bindings = f bindings, ..}
 
+bindNewScope :: Member (PR.Reader (ResolverInfo a)) r => Sem r s -> Sem r s
+bindNewScope = PR.local (mapBindings $ \ (Bindings cte xs) -> Bindings cte ([]<|xs))
 
 bindColumns :: Member (PR.Reader (ResolverInfo a)) r => ColumnSet a -> Sem r s -> Sem r s
-bindColumns columns = PR.local (mapBindings $ \ Bindings{..} -> Bindings{boundColumns = columns ++ boundColumns, ..})
+bindColumns columns = PR.local (mapBindings $ \ (Bindings cte (x:|xs)) -> Bindings cte ((columns ++ x) :| xs))
 
 bindLambdaParams :: Member (PR.Reader (ResolverInfo a)) r => [LambdaParam a] -> Sem r s -> Sem r s
 bindLambdaParams params = PR.local (\ResolverInfo{..} -> ResolverInfo{lambdaScope = params:lambdaScope, ..})
@@ -118,13 +121,19 @@ bindBothColumns :: Member (PR.Reader (ResolverInfo a)) r => FromColumns a -> Sel
 bindBothColumns fromColumns selectionAliases = bindColumns $ (Nothing, onlyNewAliases selectionAliases) : fromColumns
   where
     onlyNewAliases = filter $ \case
-        alias@(RColumnAlias _) -> not $ inFromColumns alias
+        RColumnAlias alias -> not $ inFromColumns alias
         RColumnRef _ -> False
 
-    inFromColumns alias =
-        let alias' = void alias
-            cols = map void (snd =<< fromColumns)
-         in alias' `elem` cols
+    inFromColumns (ColumnAlias _ alias _) =
+        let cols = map void (snd =<< fromColumns)
+            aliases = [name | RColumnAlias (ColumnAlias _ name _) <- cols]
+            fqcns = [name | RColumnRef (QColumnName _ _ name) <- cols]
+         in alias `elem` aliases ++ fqcns
+
+bindBothColumnsWithScope :: Member (PR.Reader (ResolverInfo a)) r => FromColumns a -> SelectionAliases a -> Sem r s -> Sem r s
+bindBothColumnsWithScope fromColumns selectionAliases = do
+    let newScope = [(Nothing, selectionAliases)] 
+    PR.local (mapBindings $ \ (Bindings cte (x:|xs)) -> Bindings cte (newScope :| ((fromColumns ++ x):xs)))
 
 data RawNames
 deriving instance Data RawNames
@@ -212,7 +221,7 @@ data Catalog i m a where
     CatalogHasTable :: UQTableName () -> Catalog i m Existence  -- | nb DoesNotExist does not imply that we can't resolve to this name (defaulting)
     CatalogResolveCreateSchemaName :: OQSchemaName i -> Catalog i m (FQSchemaName i)
     CatalogResolveCreateTableName :: OQTableName i -> Catalog i m (FQTableName i)
-    CatalogResolveColumnName :: [(Maybe (RTableRef i), [RColumnRef i])] -> OQColumnName i -> Catalog i m (RColumnRef i)
+    CatalogResolveColumnName :: NonEmpty [(Maybe (RTableRef i), [RColumnRef i])] -> OQColumnName i -> Catalog i m (RColumnRef i)
     -- | apply schema changes TODO: add tests
     CatalogResolveCreateSchema :: FQSchemaName i -> Bool -> Catalog i m ()
     CatalogResolveCreateTable :: RTableName i -> Bool -> Catalog i m ()

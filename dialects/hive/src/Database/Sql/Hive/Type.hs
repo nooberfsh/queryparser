@@ -78,7 +78,8 @@ instance Dialect Hive where
         { bindForWhere = bindFromColumns fromColumns
         , bindForGroup = bindFromColumns fromColumns
         , bindForHaving = bindBothColumns fromColumns selectionAliases
-        , bindForOrder = bindAliasedColumns selectionAliases
+        -- TODO: wo should remove columns unreferenced in selections
+        , bindForOrder = bindBothColumnsWithScope fromColumns selectionAliases 
         , bindForNamedWindow = bindFromColumns fromColumns
         }
 
