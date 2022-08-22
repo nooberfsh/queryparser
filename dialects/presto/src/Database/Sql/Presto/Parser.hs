@@ -1054,9 +1054,14 @@ dataTypeP = foldl (flip ($)) <$> typeP <*> many arraySuffixP
 
     arrayTypeP = do
         s <- Tok.arrayP
-        _ <- Tok.openAngleP
+        p <- optionMaybe Tok.openAngleP
+        endP <- case p of
+            Just _ -> return Tok.closeAngleP
+            Nothing -> do
+                _ <- Tok.openP
+                return Tok.closeP
         itemType <- dataTypeP
-        e <- Tok.closeAngleP
+        e <- endP
         return $ ArrayDataType (s <> e) itemType
 
     mapTypeP = do
