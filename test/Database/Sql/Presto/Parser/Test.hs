@@ -425,6 +425,9 @@ testParser = test
         , "CREATE TABLE t AS SELECT orderdate, totalprice WITH NO DATA"
         , "CREATE TABLE t AS SELECT orderdate, totalprice WITH DATA"
         , "CREATE TABLE IF NOT EXISTS t (a, b) COMMENT 'Summary of orders by date' WITH (format = 'ORC') AS SELECT orderdate, totalprice WITH NO DATA"
+
+        -- test values
+        , "VALUES (1,2), (2,3);"
        ]
 
     , "Exclude some broken examples" ~: map  (TestCase . parsesUnsuccessfully)

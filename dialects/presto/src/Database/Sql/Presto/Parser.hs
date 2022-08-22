@@ -169,9 +169,28 @@ queryNoWithP = do
     queryPrimaryP = choice
         [ querySelectP
         -- TODO table
-        -- TODO values
+        -- TODO: values are translated to unioned queries since there isn't a `QueryValues` node
+        , do
+            _ <- Tok.valuesP
+            selects <- valuesToSelectP `sepBy1` Tok.commaP
+            return $ foldl1 (\s1 s2 -> QueryUnion (getInfo s1 <> getInfo s2) (Distinct False) Unused s1 s2) selects
         , P.between Tok.openP Tok.closeP queryNoWithP
         ]
+
+    valuesToSelectP = do
+        start <- Tok.openP
+        selections <- selectionP `countingSepBy1` Tok.commaP
+        end <- Tok.closeP
+        let selectInfo = start <> end
+            selectCols = SelectColumns (foldl1 (<>) $ map getInfo selections) selections
+            selectFrom = Nothing
+            selectWhere = Nothing
+            selectTimeseries = Nothing
+            selectGroup = Nothing
+            selectHaving = Nothing
+            selectNamedWindow = Nothing
+            selectDistinct = Distinct False
+        return $ QuerySelect selectInfo Select{..}
 
     exceptP = do
         r <- Tok.exceptP
